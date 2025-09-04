@@ -1,0 +1,105 @@
+.dropdown-container {
+  position: relative;
+  display: inline-block;
+  font-family: "Segoe UI", sans-serif;
+  z-index: 999;
+}
+
+/* Botón principal del menú */
+.dropdown-toggle-button {
+  background: linear-gradient(to right, #3e1f0d, #8b4513, #9b7e20);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.3s ease;
+}
+
+.dropdown-toggle-button:hover {
+  opacity: 0.9;
+}
+
+.arrow {
+  margin-left: 5px;
+  transition: transform 0.3s ease;
+}
+
+.arrow.up {
+  transform: rotate(180deg);
+}
+
+/* Menú desplegable con animación */
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 200px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(to right, #3e1f0d, #8b4513, #9b7e20);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  animation: dropdownFade 0.3s ease;
+  transition: height 0.3s ease;
+}
+
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Botones del menú y submenús */
+.menu-button {
+  background: none;
+  border: none;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 13px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.2s ease;
+}
+
+.menu-button:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+  color: #ffe28a;
+}
+
+.icon {
+  margin-right: 8px;
+}
+
+/* Submenús */
+.sub-menu {
+  background-color: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  transition: height 0.3s ease;
+}
+
+.sub-menu.open {
+  padding-top: 4px;
+}
+
+.back-button {
+  font-weight: bold;
+  color: #ffe28a;
+}
+
+.back-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}

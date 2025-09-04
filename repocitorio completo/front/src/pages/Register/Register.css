@@ -1,0 +1,246 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=MedievalSharp&display=swap');
+
+.register-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start; 
+  min-height: 100vh;
+  padding: 120px 0; 
+  width: 100vw;
+  background: url('https://www.transparenttextures.com/patterns/old-map.png'), linear-gradient(135deg, #2b1d0f, #593d1b);
+  font-family: 'MedievalSharp', cursive;
+  cursor: url('/assets/sword-cursor.png'), auto;
+}
+
+.loading-screen {
+  color: #9b7e20;
+  font-size: 26px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.register-box {
+  background: linear-gradient(#9b7e20, #774b1f);
+  padding: 40px;
+  border-radius: 10px;
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  width: 400px;
+  border: 3px solid #c4a484;
+  transition: all 0.3s ease-in-out;
+}
+
+.register-box:hover {
+  box-shadow: 0px 0px 20px rgba(255, 223, 186, 0.5);
+}
+
+.register-box h2 {
+  color: white;
+  font-size: 26px;
+  margin-bottom: 20px;
+  text-shadow: 3px 3px 8px rgba(0, 0, 0, 0.5);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+input, .password-container {
+  box-sizing: border-box; 
+  font-family: 'MedievalSharp', serif;
+}
+
+input {
+  width: 100%;
+  margin: 10px 0;
+  padding: 14px;
+  border: 2px solid #c4a484;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  outline: none;
+  font-size: 18px;
+  transition: border 0.3s ease-in-out;
+  font-family: 'MedievalSharp', serif;
+}
+
+input::placeholder {
+  color: #ffffffaa;
+  font-family: 'Cinzel', serif;
+}
+
+input:focus {
+  border: 2px solid #ffd700;
+  box-shadow: 0px 0px 15px rgba(255, 215, 0, 0.8);
+}
+
+.password-container {
+  position: relative;
+  width: 107%;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid #c4a484;
+  border-radius: 5px;
+  margin: 10px 0;
+  height: 50px;
+  transition: all 0.3s ease-in-out;
+}
+
+.password-container:focus-within {
+  border: 2px solid #ffd700;
+  box-shadow: 0px 0px 15px rgba(255, 215, 0, 0.8);
+}
+
+.password-input {
+  width: 107%;
+  height: 100%;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 18px;
+  outline: none;
+}
+
+.eye-button {
+  position: absolute;
+  right: 15px;
+  font-size: 20px;
+  color: white;
+  cursor: pointer;
+}
+.verify-container {
+  text-align: center;
+  margin-top: 25px;
+  padding: 16px;
+  background-color: rgba(10, 20, 40, 0.4); /* Fondo oscuro semitransparente, temático */
+  border-radius: 12px; /* Bordes más redondeados */
+  border-top: 1px solid rgba(138, 116, 230, 0.3); /* Borde superior con acento de color */
+  line-height: 1.6;
+}
+
+/* Estilo para el texto "¿Ya te registraste?" */
+.verify-text {
+  color: #c0c0d0; /* Un gris azulado, fácil de leer */
+  font-size: 0.95em;
+  margin-right: 8px; /* Espacio entre el texto y el botón */
+}
+
+/* Estilo del botón "Verifica tu cuenta" */
+.verify-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #9f8cff; /* Un color violeta/lavanda brillante, temático de fantasía */
+  font-family: inherit;
+  font-size: 0.95em;
+  font-weight: 700; /* Más audaz para que destaque */
+  cursor: pointer;
+  text-decoration: none;
+  position: relative;
+  transition: color 0.3s ease-out;
+}
+
+/* Línea animada que aparece debajo al pasar el cursor */
+.verify-button::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  bottom: -4px;
+  left: 0;
+  background-color: #c1b6ff; /* La línea es más brillante que el texto */
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1); /* Transición suave */
+}
+
+/* Efecto al pasar el cursor sobre el botón */
+.verify-button:hover {
+  color: #d6ceff; /* El texto se hace casi blanco, más brillante */
+  background-color: transparent; /* AÑADIDO: Asegura que no haya fondo de color */
+}
+
+.verify-button:hover::after {
+  transform: scaleX(1); /* La línea aparece desde el centro */
+}
+
+button {
+  width: 100%; 
+  margin-top: 10px;
+  background: #593d1b;
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 18px;
+  text-transform: uppercase;
+  font-family: 'Cinzel', serif;
+  transition: all 0.3s;
+}
+
+button:hover {
+  background: #ffd700;
+  color: #593d1b;
+  transform: scale(1.05);
+  box-shadow: 0px 0px 15px rgba(255, 215, 0, 0.8);
+}
+
+/* Estilos para mensajes de error */
+.error-message {
+  background: linear-gradient(135deg, #8b2635, #a73544);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 2px solid #c4a484;
+  font-family: 'Cinzel', serif;
+  font-size: 14px;
+  text-align: center;
+  box-shadow: 0px 4px 12px rgba(139, 38, 53, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.error-icon {
+  font-size: 16px;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
+}
+
+/* Estilos para indicador de fortaleza de contraseña */
+.password-strength-message {
+  background: linear-gradient(135deg, #8b4513, #a0522d);
+  color: #ffd700;
+  padding: 8px 15px;
+  border-radius: 6px;
+  margin-top: -5px;
+  margin-bottom: 15px;
+  border: 1px solid #c4a484;
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  text-align: center;
+  box-shadow: 0px 2px 8px rgba(139, 69, 19, 0.3);
+}
+
+/* Estilos para contraseña fuerte */
+.password-strong-message {
+  background: linear-gradient(135deg, #2d5016, #3d6b1f);
+  color: #90ee90;
+  padding: 8px 15px;
+  border-radius: 6px;
+  margin-top: -5px;
+  margin-bottom: 15px;
+  border: 1px solid #c4a484;
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  text-align: center;
+  box-shadow: 0px 2px 8px rgba(45, 80, 22, 0.3);
+}
