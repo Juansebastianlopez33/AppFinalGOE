@@ -1,0 +1,39 @@
+{
+    "tema": "javascript",
+    "subtema": "funciones-flecha",
+    "dificultad": "medio",
+    "contenido": {
+        "introduccion": "Flecha (;) y funciones (function)\n Es una forma de declarar el código que se ejecuta al momento del llamado.\n Es una parte fundamental en la programación funcional de JavaScript.",
+        "conceptos_clave": [
+            "arrow functions",
+            "named functions"
+        ],
+        "ejemplos_practicos": [
+            {
+                "codigo": "const pi = function (d) { return 3.14 ** d; };\nconsole.log(pi(2));"
+            },
+            "function suma(a, b) {\nreturn a + b;}",
+            {
+                "codigo": "let x = function (n) { console.log(n); return n; };\nx(10);"
+            }
+        ],
+        "errores_comunes": [
+            "SyntaxError: missing closing parenthesis",
+            "SyntaxError: invalid syntax"
+        ],
+        "buenas_practicas": [
+            "creación de funciones personalizadas",
+            "uso de funciones para organizar el código"
+        ],
+        "aplicaciones": [
+            "Aplicar flechas como operadores en conditionales, condicionales if-else",
+            "Usar flechas en recorridos (for, while)",
+            "Crear funciones que manejen eventos"
+        ],
+        "ejemplos_extra_texto": [
+            "Flecha arrow();\nEs una forma de declarar la función.",
+            "\nUna declaración de función utilizando el nuevo tipo arrow;\nflechas se utilizan en los operadores, condicionales y recorridos.\nEs especialmente útil con conditionales if-else",
+            "funciones de flecha como: \tconst miFrase = function (arg) { console.log(arg); } ;\tfilaFrase(10)"
+        ]
+    }
+}

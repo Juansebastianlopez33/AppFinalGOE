@@ -149,7 +149,10 @@ app.register_blueprint(user_bp, url_prefix='/user')
 app.register_blueprint(support_bp)
 app.register_blueprint(pdf_bp)
 app.register_blueprint(blog_bp, url_prefix='/blog') # <-- REGISTRO AGREGADO
-app.register_blueprint(auth_juego_bp, url_prefix='/auth-juego') # <-- NUEVO REGISTRO DEL BLUEPRINT
+# --- LÍNEA CORREGIDA A CONTINUACIÓN ---
+app.register_blueprint(auth_juego_bp, url_prefix='/auth_juego') 
+# --- FIN DE LA LÍNEA CORREGIDA ---
+
 
 batched_publication_updates = {}
 batched_publication_updates_lock = Lock()

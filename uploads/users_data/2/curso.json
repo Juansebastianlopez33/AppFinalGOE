@@ -1,0 +1,37 @@
+{
+    "tema": "python",
+    "subtema": "condicionales-simples",
+    "dificultad": "facil",
+    "contenido": {
+        "introduccion": "\\n\\nEsto es una introducción a las condiciones simples en Python\\n\\nEs importante tener un buen entendimiento de estas estructuras antes de seguir adelante.",
+        "conceptos_clave": [
+            "condicional if",
+            "condicional else"
+        ],
+        "ejemplos_practicos": [
+            {
+                "codigo": "if x > 5:\n  print(\"x es mayor que 5\")"
+            },
+            {
+                "codigo": "else:\n  print(\"x no es mayor que 5\")"
+            }
+        ],
+        "errores_comunes": [
+            "Division por cero",
+            "Tipo de dato incorrecto"
+        ],
+        "buenas_practicas": [
+            "Comentar condiciones y estructuras, verificar la sintaxis antes de correr el código"
+        ],
+        "aplicaciones": [
+            "Validar si un número es par o impar",
+            "Determinar si un número es mayor que una distancia",
+            "Simular un juego de lanzamiento de dados"
+        ],
+        "ejemplos_extra_texto": [
+            "\\n\\tEl código anterior te permite ver una condición if para filtrar un lista de números y determinar si cada uno es par o impar.",
+            "El segundo ejemplo muestra cómo utilizar el método ternario para obtener la condición correcta dependiendo de una variable.",
+            "Ten en cuenta que estas aplicaciones pueden variar según las necesidades específicas del proyecto."
+        ]
+    }
+}

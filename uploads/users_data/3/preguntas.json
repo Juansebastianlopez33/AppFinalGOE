@@ -1,0 +1,122 @@
+[
+    {
+        "pregunta": "¿Cuál es la diferencia entre funciones anónimas y funciones declaradas?",
+        "opciones": {
+            "A": "Funciones anónimas son más rápidas",
+            "B": "Funciones declaradas son más flexibles",
+            "C": "Ambos tienen las mismas características",
+            "D": "No hay una diferencia"
+        },
+        "respuesta": "A",
+        "explicacion": "Una función anónima es una función definida sin un nombre y sin el uso de la palabra reservada 'function', mientras que una función declarada es una función que tiene un nombre y se puede utilizar en cualquier lugar.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es el tipo principal de función que tiene una relación funcional con el contexto del código?",
+        "opciones": {
+            "A": "Función",
+            "B": "Metodora",
+            "C": "Variable",
+            "D": "Objetivo"
+        },
+        "respuesta": "A",
+        "explicacion": "Una función es un bloque de código que realiza una tarea específica, mientras que la relación funcional se refiere a la capacidad de una variable o propiedad para ser utilizada en otras partes del código.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es el nombre del método que se utiliza para pasar los datos de una variable por valor a otra en JavaScript?",
+        "opciones": {
+            "A": "assign",
+            "B": "update",
+            "C": "set",
+            "D": "delete"
+        },
+        "respuesta": "A",
+        "explicacion": "El método assign es utilizado para pasar los datos de una variable por valor a otra.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es la función que se utiliza para ejecutar un bloque de código una vez y solo una vez en JavaScript?",
+        "opciones": {
+            "A": "function",
+            "B": "while",
+            "C": "for",
+            "D": "try"
+        },
+        "respuesta": "A",
+        "explicacion": "La función es una función que se ejecuta una vez y solo una vez.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es el nombre del operador que permite modificar un objeto en JavaScript?",
+        "opciones": {
+            "A": "+=",
+            "B": "-->",
+            "C": "**=1%",
+            "D": "%="
+        },
+        "respuesta": "A",
+        "explicacion": "El operador += permite agregar un valor a la propiedad de un objeto.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es la diferencia entre la función de callback y el método asynchronous?",
+        "opciones": {
+            "A": "Callback functions",
+            "B": "Métodos asincrónicos",
+            "C": "Neither of the above",
+            "D": "Métodos sincrónicos"
+        },
+        "respuesta": "B",
+        "explicacion": "Una función de callback es una función que se llama a otra función, mientras que un método asincrónico es una propiedad o método de una clase que no puede ser llamado directamente.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cómo se utiliza la propiedad `this` en el contexto de las funciones síncronas?",
+        "opciones": {
+            "A": "No existe",
+            "B": "Está definida como `this`, pero no tiene valor",
+            "C": "Es un objeto global que se puede acceder directamente",
+            "D": "Nada tiene sentido"
+        },
+        "respuesta": "B",
+        "explicacion": "La propiedad `this` es una referencia a el contexto en el cual está siendo llamado la función.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es la diferencia entre var y let en JavaScript?",
+        "opciones": {
+            "A": "var define una variable global",
+            "B": "let define una variable local",
+            "C": "var y let son sin valor inicial",
+            "D": "var y let se utilizan en funciones"
+        },
+        "respuesta": "B",
+        "explicacion": "En JavaScript, var define una variable global que puede ser accesada por cualquier parte del escenario. En cambio, let define una variable local que solo puede ser accesada dentro de la función.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es el uso común de thelseif en JavaScript?",
+        "opciones": {
+            "A": "thelseif es utilizado para evaluar condicionales",
+            "B": "thelseif no se utiliza",
+            "C": "thelseif es utilizado para definir funciones de recursión",
+            "D": "thelseif es utilizado como expresión de condición"
+        },
+        "respuesta": "A",
+        "explicacion": "En JavaScript, thelseif es utilizado para evaluar condiciones y determinar el comportamiento adecuado.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es la función de la flecha en JavaScript?",
+        "opciones": {
+            "A": "evaluar variables",
+            "B": "obtener valores de funciones",
+            "C": "combinar statements",
+            "D": "llamar funciones"
+        },
+        "respuesta": "B",
+        "explicacion": "La función de la flecha en JavaScript es utilizada para ejecutar código adicional después de evaluar las variables y los valores de otras funciones.",
+        "dificultad": "medio"
+    }
+]

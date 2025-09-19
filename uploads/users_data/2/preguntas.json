@@ -1,0 +1,134 @@
+[
+    {
+        "pregunta": "¿Cuál es el resultado de 2 + 2?",
+        "opciones": {
+            "A": "6",
+            "B": "4",
+            "C": "2",
+            "D": "0"
+        },
+        "respuesta": "A",
+        "explicacion": "El resultado de la suma de 2 y 2 es 4.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Qué tipo de variable en Python es?",
+        "opciones": {
+            "A": "global",
+            "B": "local",
+            "C": "class",
+            "D": "function"
+        },
+        "respuesta": "B",
+        "explicacion": "La variable en Python se declara como global si se puede acceder desde cualquier lugar del código.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es el valor de la función sin argumentos en Python?",
+        "opciones": {
+            "A": "0",
+            "B": "1",
+            "C": "2",
+            "D": "3"
+        },
+        "respuesta": "A",
+        "explicacion": "La función sin argumentos en Python devuelve 0.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Qué es el tipo de datos en Python?",
+        "opciones": {
+            "A": "int",
+            "B": "float",
+            "C": "str",
+            "D": "bool"
+        },
+        "respuesta": "B",
+        "explicacion": "El tipo de datos en Python es int, float o str.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es el resultado de 10 / 2?",
+        "opciones": {
+            "A": "5",
+            "B": "3",
+            "C": "1",
+            "D": "0"
+        },
+        "respuesta": "A",
+        "explicacion": "El resultado de la división de 10 por 2 es 5.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es la diferencia entre una condición simétrica y una condición impar",
+        "opciones": {
+            "A": "La condición simétrica es aquella que se aplica a toda la lista, mientras que la condición impar es aquella que se aplica parcialmente.",
+            "B": "La condición simétrica siempre se aplica igual a sí misma, mientras que la condición impar puede variar",
+            "C": "Un condicional parcial siempre se aplica, mientras que una condicional impar no lo hace necesariamente",
+            "D": "Ambos tipos de condicionales son técnicamente iguales"
+        },
+        "respuesta": "A",
+        "explicacion": "Una condición simétrica es aquella que se aplica a toda la lista, mientras que una condición impar es aquella que se aplica parcialmente.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es el uso común de los operadores ternarios en Python?",
+        "opciones": {
+            "A": "Para combinar dos valores para crear una lista de valores alternativos,",
+            "B": "Para condicionar un valor a otra base de caso",
+            "C": "Para calcular una función simples usando los operadores de suma y diferencia",
+            "D": "Para evaluar una expresión lógica"
+        },
+        "respuesta": "A",
+        "explicacion": "Los operadores ternarios son útiles para combinar dos valores en Python, como crear una lista de valores alternativos.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es el valor mínimo recomendado para la variable x en una ecuación de sistema de equilibrio laminar?",
+        "opciones": {
+            "A": "2",
+            "B": "4",
+            "C": "5",
+            "D": "10"
+        },
+        "respuesta": "C",
+        "explicacion": "Para un sistema de equilibrio laminar, el valor mínimo recomendado para la variable x es 5.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Qué tipo de función matemática representa una relación entre los valores de una cantidad y un tiempo?",
+        "opciones": {
+            "A": "exponencial",
+            "B": "linear",
+            "C": "polinomial",
+            "D": "tridimensional"
+        },
+        "respuesta": "A",
+        "explicacion": "Una función matemática que representa una relación entre los valores de una cantidad y un tiempo es exponencial.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cuál es la sintaxis básica para evaluar una condición en Python?",
+        "opciones": {
+            "A": "if condicion, entonces acción",
+            "B": "condicion ? acción : else",
+            "C": "else si condición",
+            "D": "condicion y acción"
+        },
+        "respuesta": "A",
+        "explicacion": "La sintaxis básica para evaluar una condición en Python es de forma simple. Utiliza la condición condicion (condicion ? acción : else), donde el símbolo ? indica que se debe realizar la acción cuando la condición sea verdadera y else indica que se debe realizar la acción cuando no sea lo mismo.",
+        "dificultad": "facil"
+    },
+    {
+        "pregunta": "¿Cómo evaluar una condición de forma más compleja en Python?",
+        "opciones": {
+            "A": "utilizando el if-elif-else",
+            "B": "utilizando la estructura condicional if elif else",
+            "C": "utilizando la función conditional condicional",
+            "D": "utilizando la sentencia if condicion"
+        },
+        "respuesta": "A",
+        "explicacion": "Para evaluar una condición de forma más compleja en Python, puedes utilizar el if-elif-else. Esto te permite elegir entre diferentes acciones según las condiciones.",
+        "dificultad": "medio"
+    }
+]
