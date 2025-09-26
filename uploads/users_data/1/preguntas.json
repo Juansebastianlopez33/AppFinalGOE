@@ -1,134 +1,86 @@
 [
     {
-        "pregunta": "¿Cuál es el resultado de 2 + 2?",
+        "pregunta": "¿Cuál es el nombre del método que se utiliza para pasar los datos de una variable por valor a otra en JavaScript?",
         "opciones": {
-            "A": "6",
-            "B": "4",
-            "C": "2",
-            "D": "0"
+            "A": "assign",
+            "B": "update",
+            "C": "set",
+            "D": "delete"
         },
         "respuesta": "A",
-        "explicacion": "El resultado de la suma de 2 y 2 es 4.",
-        "dificultad": "facil"
+        "explicacion": "El método assign es utilizado para pasar los datos de una variable por valor a otra.",
+        "dificultad": "medio"
     },
     {
-        "pregunta": "¿Qué tipo de variable en Python es?",
+        "pregunta": "¿Cuál es la función que se utiliza para ejecutar un bloque de código una vez y solo una vez en JavaScript?",
         "opciones": {
-            "A": "global",
-            "B": "local",
-            "C": "class",
-            "D": "function"
+            "A": "function",
+            "B": "while",
+            "C": "for",
+            "D": "try"
+        },
+        "respuesta": "A",
+        "explicacion": "La función es una función que se ejecuta una vez y solo una vez.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es el nombre del operador que permite modificar un objeto en JavaScript?",
+        "opciones": {
+            "A": "+=",
+            "B": "-->",
+            "C": "**=1%",
+            "D": "%="
+        },
+        "respuesta": "A",
+        "explicacion": "El operador += permite agregar un valor a la propiedad de un objeto.",
+        "dificultad": "medio"
+    },
+    {
+        "pregunta": "¿Cuál es la diferencia entre la función de callback y el método asynchronous?",
+        "opciones": {
+            "A": "Callback functions",
+            "B": "Métodos asincrónicos",
+            "C": "Neither of the above",
+            "D": "Métodos sincrónicos"
         },
         "respuesta": "B",
-        "explicacion": "La variable en Python se declara como global si se puede acceder desde cualquier lugar del código.",
-        "dificultad": "facil"
+        "explicacion": "Una función de callback es una función que se llama a otra función, mientras que un método asincrónico es una propiedad o método de una clase que no puede ser llamado directamente.",
+        "dificultad": "medio"
     },
     {
-        "pregunta": "¿Cuál es el valor de la función sin argumentos en Python?",
+        "pregunta": "¿Cómo se utiliza la propiedad `this` en el contexto de las funciones síncronas?",
         "opciones": {
-            "A": "0",
-            "B": "1",
-            "C": "2",
-            "D": "3"
-        },
-        "respuesta": "A",
-        "explicacion": "La función sin argumentos en Python devuelve 0.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Qué es el tipo de datos en Python?",
-        "opciones": {
-            "A": "int",
-            "B": "float",
-            "C": "str",
-            "D": "bool"
+            "A": "No existe",
+            "B": "Está definida como `this`, pero no tiene valor",
+            "C": "Es un objeto global que se puede acceder directamente",
+            "D": "Nada tiene sentido"
         },
         "respuesta": "B",
-        "explicacion": "El tipo de datos en Python es int, float o str.",
-        "dificultad": "facil"
+        "explicacion": "La propiedad `this` es una referencia a el contexto en el cual está siendo llamado la función.",
+        "dificultad": "medio"
     },
     {
-        "pregunta": "¿Cuál es el resultado de 10 / 2?",
+        "pregunta": "¿Cuál es el uso común de thelseif en JavaScript?",
         "opciones": {
-            "A": "5",
-            "B": "3",
-            "C": "1",
-            "D": "0"
+            "A": "thelseif es utilizado para evaluar condicionales",
+            "B": "thelseif no se utiliza",
+            "C": "thelseif es utilizado para definir funciones de recursión",
+            "D": "thelseif es utilizado como expresión de condición"
         },
         "respuesta": "A",
-        "explicacion": "El resultado de la división de 10 por 2 es 5.",
-        "dificultad": "facil"
+        "explicacion": "En JavaScript, thelseif es utilizado para evaluar condiciones y determinar el comportamiento adecuado.",
+        "dificultad": "medio"
     },
     {
-        "pregunta": "¿Cuál es la diferencia entre una condición simétrica y una condición impar",
+        "pregunta": "¿Cuál es la función de la flecha en JavaScript?",
         "opciones": {
-            "A": "La condición simétrica es aquella que se aplica a toda la lista, mientras que la condición impar es aquella que se aplica parcialmente.",
-            "B": "La condición simétrica siempre se aplica igual a sí misma, mientras que la condición impar puede variar",
-            "C": "Un condicional parcial siempre se aplica, mientras que una condicional impar no lo hace necesariamente",
-            "D": "Ambos tipos de condicionales son técnicamente iguales"
+            "A": "evaluar variables",
+            "B": "obtener valores de funciones",
+            "C": "combinar statements",
+            "D": "llamar funciones"
         },
-        "respuesta": "A",
-        "explicacion": "Una condición simétrica es aquella que se aplica a toda la lista, mientras que una condición impar es aquella que se aplica parcialmente.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Cuál es el uso común de los operadores ternarios en Python?",
-        "opciones": {
-            "A": "Para combinar dos valores para crear una lista de valores alternativos,",
-            "B": "Para condicionar un valor a otra base de caso",
-            "C": "Para calcular una función simples usando los operadores de suma y diferencia",
-            "D": "Para evaluar una expresión lógica"
-        },
-        "respuesta": "A",
-        "explicacion": "Los operadores ternarios son útiles para combinar dos valores en Python, como crear una lista de valores alternativos.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Cuál es el valor mínimo recomendado para la variable x en una ecuación de sistema de equilibrio laminar?",
-        "opciones": {
-            "A": "2",
-            "B": "4",
-            "C": "5",
-            "D": "10"
-        },
-        "respuesta": "C",
-        "explicacion": "Para un sistema de equilibrio laminar, el valor mínimo recomendado para la variable x es 5.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Qué tipo de función matemática representa una relación entre los valores de una cantidad y un tiempo?",
-        "opciones": {
-            "A": "exponencial",
-            "B": "linear",
-            "C": "polinomial",
-            "D": "tridimensional"
-        },
-        "respuesta": "A",
-        "explicacion": "Una función matemática que representa una relación entre los valores de una cantidad y un tiempo es exponencial.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Cuál es la sintaxis básica para evaluar una condición en Python?",
-        "opciones": {
-            "A": "if condicion, entonces acción",
-            "B": "condicion ? acción : else",
-            "C": "else si condición",
-            "D": "condicion y acción"
-        },
-        "respuesta": "A",
-        "explicacion": "La sintaxis básica para evaluar una condición en Python es de forma simple. Utiliza la condición condicion (condicion ? acción : else), donde el símbolo ? indica que se debe realizar la acción cuando la condición sea verdadera y else indica que se debe realizar la acción cuando no sea lo mismo.",
-        "dificultad": "facil"
-    },
-    {
-        "pregunta": "¿Cómo evaluar una condición de forma más compleja en Python?",
-        "opciones": {
-            "A": "utilizando el if-elif-else",
-            "B": "utilizando la estructura condicional if elif else",
-            "C": "utilizando la función conditional condicional",
-            "D": "utilizando la sentencia if condicion"
-        },
-        "respuesta": "A",
-        "explicacion": "Para evaluar una condición de forma más compleja en Python, puedes utilizar el if-elif-else. Esto te permite elegir entre diferentes acciones según las condiciones.",
+        "respuesta": "B",
+        "explicacion": "La función de la flecha en JavaScript es utilizada para ejecutar código adicional después de evaluar las variables y los valores de otras funciones.",
         "dificultad": "medio"
     }
 ]

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
     foto_perfil VARCHAR(255) DEFAULT NULL, -- Columna para la URL de la foto de perfil
     reset_token VARCHAR(255) NULL,         -- Columna para el token/código de restablecimiento de contraseña
     reset_token_expira DATETIME NULL,      -- Columna para la expiración del token/código de restablecimiento
-    token VARCHAR(255) NULL                -- Added token column
+    token VARCHAR(255) NULL,               -- Added token column
+    estado_pregunta VARCHAR(20) DEFAULT NULL -- 🔹 NUEVA COLUMNA
 );
 
 -- Tabla de dificultades para las partidas (ej. Fácil, Intermedio, Difícil, Experto)
