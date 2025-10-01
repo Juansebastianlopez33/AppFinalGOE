@@ -30,15 +30,23 @@ def init_app(app: Flask):
     redis_port = int(app.config.get('REDIS_PORT', os.getenv('REDIS_PORT', 6379)))
     redis_db = int(app.config.get('REDIS_DB', os.getenv('REDIS_DB', 0)))
 
-    try:
-        # Crea el cliente Redis para uso directo en otras partes de la aplicación (ej. rate limiting)
+   try:
+    redis_url = app.config.get('REDIS_URL') or os.getenv('REDIS_URL')
+    if redis_url:
+        # Conectar usando URL completa (ideal para Render)
+        redis_client = redis.StrictRedis.from_url(redis_url, decode_responses=True)
+    else:
+        # Fallback: conectar usando host/port/db (ideal para Docker local)
+        redis_host = app.config.get('REDIS_HOST', os.getenv('REDIS_HOST', 'localhost'))
+        redis_port = int(app.config.get('REDIS_PORT', os.getenv('REDIS_PORT', 6379)))
+        redis_db   = int(app.config.get('REDIS_DB', os.getenv('REDIS_DB', 0)))
         redis_client = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
-        # Probar la conexión a Redis
-        redis_client.ping()
-        print("INFO: Conectado exitosamente a Redis!")
+
+    # Probar conexión
+    redis_client.ping()
+    print("INFO: Conectado exitosamente a Redis!")
+
     except redis.exceptions.ConnectionError as e:
-        print(f"ERROR: No se pudo conectar a Redis: {e}. Las funciones de rate-limiting NO funcionarán correctamente.", file=sys.stderr)
-        redis_client = None # Asegúrate de que el cliente sea None si la conexión falla
-    except Exception as e:
-        print(f"ERROR: Error inesperado al conectar a Redis: {e}", file=sys.stderr)
+        print(f"ERROR: No se pudo conectar a Redis: {e}", file=sys.stderr)
         redis_client = None
+
