@@ -221,141 +221,125 @@ def enviar_correo_bienvenida(destinatario, username):
         traceback.print_exc(file=sys.stderr)
         return False
 
-
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
     username = data.get('username')
     email = data.get('email')
     password = data.get('password')
-    
+    descripcion = data.get('descripcion', '')
+    foto_perfil = data.get('foto_perfil')
+
     if not username or not email or not password:
-        return jsonify({"error": "Faltan datos requeridos."}), 400
+        return jsonify({"error": "Faltan datos de registro requeridos."}), 400
 
-    # 1. Validar Contraseña
-    is_valid, reason = validar_password(password)
-    if not is_valid:
-        return jsonify({"error": reason}), 400
-    
-    # 2. Validar Email
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        return jsonify({"error": "Formato de correo inválido."}), 400
+    es_valida, mensaje_error = validar_password(password)
+    if not es_valida:
+        return jsonify({"error": mensaje_error}), 400
 
-    conn = None
+    conn = get_db()
+    conn.begin() # Iniciar transacción
     try:
-        conn = get_db()
-        # Iniciar transacción para asegurar que el usuario no se registre si falla el correo.
-        conn.begin()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-        # Verificar existencia de usuario o email
-        cursor.execute("SELECT user_id FROM users WHERE username = %s OR email = %s", (username, email))
+        
+        # 🛑 CORRECCIÓN: Usar 'id' en lugar de 'user_id' en el SELECT
+        cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
         if cursor.fetchone():
-            conn.rollback()
-            print(f"DEBUG-REG: Intento de registro con usuario o email ya existente: {username}/{email}", file=sys.stderr)
-            return jsonify({"error": "El nombre de usuario o el correo electrónico ya están registrados."}), 409
+            return jsonify({"error": "El nombre de usuario o el correo electrónico ya está registrado."}), 409
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         verification_code = generar_codigo_verificacion()
-        expiration_time = datetime.now() + timedelta(minutes=15)
-        user_uuid = generar_uuid_token()
-        
-        # 3. Insertar usuario (status 'PENDING')
-        print(f"DEBUG-REG: Insertando usuario {username} en DB (sin commit)...", file=sys.stderr)
+        code_expiration = datetime.now() + timedelta(minutes=15)
+        uuid_token = generar_uuid_token()
+
         cursor.execute("""
-            INSERT INTO users (username, email, password_hash, is_active, is_verified, verification_code, verification_code_expira, token) 
-            VALUES (%s, %s, %s, 1, 0, %s, %s, %s)
-        """, (username, email, hashed_password, verification_code, expiration_time, user_uuid))
-
-        # 4. Enviar correo de verificación
-        print(f"DEBUG-REG: Llamando a enviar_correo_verificacion para {email}...", file=sys.stderr)
-        if not enviar_correo_verificacion(email, verification_code):
-            # 5. Si falla el correo, hacer ROLLBACK
-            conn.rollback()
-            print(f"ERROR-REG: Fallo al enviar correo de verificación a {email}. Se ha ejecutado ROLLBACK. Usuario NO registrado.", file=sys.stderr)
-            # 503: Service Unavailable, indicando que el servicio de correo falló.
-            return jsonify({"error": "Fallo al enviar el correo de verificación. Por favor, inténtalo de nuevo más tarde."}), 503
-
-        # 6. Si el correo se envía, hacer COMMIT
+            INSERT INTO users (username, email, DescripUsuario, password_hash, verificado, verification_code, code_expiration, foto_perfil, token)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (username, email, descripcion, hashed_password, False, verification_code, code_expiration, foto_perfil, uuid_token))
+        
+        # 🛑 CORRECCIÓN: Asegurar el commit de la transacción
         conn.commit()
-        print(f"DEBUG-REG: Usuario {username} insertado y correo enviado exitosamente.", file=sys.stderr)
+        
+        # Enviar correo de verificación (no bloquea el registro si falla el envío)
+        if not enviar_correo_verificacion(email, verification_code):
+            print(f"ADVERTENCIA: Fallo al enviar correo de verificación a {email}.", file=sys.stderr)
+            # Opcional: Podrías revertir el registro aquí, pero es mejor permitirlo y dejar que el usuario reintente el código.
         
         return jsonify({
             "message": "Registro exitoso. Se ha enviado un código de verificación a tu correo.",
-            "user_id": user_uuid # Devolver el UUID para futuras referencias
+            "username": username,
+            "user_uuid": uuid_token
         }), 201
 
-    except pymysql.err.MySQLError as e:
-        if conn:
-            conn.rollback()
-        error_msg = f"ERROR-DB: Fallo en transacción de registro: {str(e)}"
-        print(error_msg, file=sys.stderr)
+    except pymysql.err.OperationalError as e:
+        conn.rollback()
+        # El error original era aquí: "Unknown column 'user_id' in 'field list'" (1054)
+        print(f"ERROR-DB: Fallo en transacción de registro: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        return jsonify({"error": "Error de base de datos durante el registro."}), 500
+        return jsonify({"error": f"Error en la base de datos al registrar: {e.args[1]}"}), 500
     except Exception as e:
-        if conn:
-            conn.rollback()
-        error_msg = f"ERROR: Fallo general en /register: {str(e)}"
-        print(error_msg, file=sys.stderr)
+        conn.rollback()
+        print(f"ERROR: Fallo general en /register: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
-    finally:
-        if conn:
-            # La conexión se cierra automáticamente al final del contexto de Flask con @app.teardown_appcontext
-            # Solo imprimimos un mensaje si ya estaba cerrada (manejo de error en extensions.py)
-            pass
 
-@auth_bp.route('/verificar', methods=['POST'])
+
+@auth_bp.route('/verify-code', methods=['POST'])
 def verificar_cuenta():
     data = request.get_json()
     email = data.get('email')
     code = data.get('code')
-    
+
     if not email or not code:
-        return jsonify({"error": "Faltan datos requeridos (email y código)."}), 400
+        return jsonify({"error": "Faltan el correo electrónico o el código de verificación."}), 400
 
     conn = get_db()
+    conn.begin()
     try:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
         cursor.execute("""
-            SELECT verification_code, verification_code_expira, is_verified 
+            SELECT verification_code, code_expiration, verificado 
             FROM users 
             WHERE email = %s
         """, (email,))
-        
         user_data = cursor.fetchone()
-        
+
         if not user_data:
             return jsonify({"error": "Correo electrónico no encontrado."}), 404
-        
-        if user_data['is_verified']:
+
+        if user_data['verificado']:
             return jsonify({"message": "La cuenta ya está verificada."}), 200
 
-        stored_code = user_data['verification_code']
-        expira = user_data['verification_code_expira']
+        db_code = user_data['verification_code']
+        expira = user_data['code_expiration']
 
-        if stored_code != code:
+        if db_code != code:
             return jsonify({"error": "Código de verificación incorrecto."}), 400
-        
+
         if expira is None or datetime.now() > expira:
             return jsonify({"error": "El código de verificación ha expirado."}), 400
 
-        # Verificación exitosa
-        conn.begin() # Iniciar transacción
-        cursor.execute("UPDATE users SET is_verified = 1, verification_code = NULL, verification_code_expira = NULL WHERE email = %s", (email,))
-        conn.commit() # Confirmar
+        # Si es correcto: actualizar la cuenta
+        cursor.execute("""
+            UPDATE users SET verificado = TRUE, verification_code = NULL, code_expiration = NULL 
+            WHERE email = %s
+        """, (email,))
         
-        # Enviar correo de bienvenida (opcional, sin rollback)
-        user_details = get_user_details(email=email)
+        conn.commit()
+
+        # Enviar correo de bienvenida (NO bloquea la verificación si falla el envío)
+        user_details = get_user_details(email)
         if user_details:
-             enviar_correo_bienvenida(email, user_details['username'])
+             if not enviar_correo_bienvenida(email, user_details.get('username', 'usuario')):
+                 print(f"ADVERTENCIA: Fallo al enviar correo de bienvenida a {email}.", file=sys.stderr)
+
 
         return jsonify({"message": "Cuenta verificada exitosamente."}), 200
-    
+
     except Exception as e:
-        if conn:
-            conn.rollback()
-        print(f"ERROR: Fallo general en /verificar: {str(e)}", file=sys.stderr)
+        conn.rollback()
+        print(f"ERROR: Fallo general en /verify-code: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
 
@@ -367,34 +351,41 @@ def login():
     password = data.get('password')
 
     if not email or not password:
-        return jsonify({"error": "Faltan datos requeridos."}), 400
+        return jsonify({"error": "Faltan el correo electrónico o la contraseña."}), 400
 
     conn = get_db()
     try:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        # 🛑 CORRECCIÓN: Usar 'id' en lugar de 'user_id' en el SELECT
         cursor.execute("""
-            SELECT user_id, username, password_hash, is_verified, is_active, token 
+            SELECT id, username, password_hash, verificado, token
             FROM users 
             WHERE email = %s
         """, (email,))
         user_data = cursor.fetchone()
+        
+        if not user_data:
+            return jsonify({"error": "Credenciales inválidas."}), 401
 
+        # Verificar si la cuenta está verificada
+        if not user_data['verificado']:
+            return jsonify({"error": "Cuenta no verificada. Por favor, revisa tu correo electrónico para verificar tu cuenta."}), 403
+
+        # Verificar la contraseña
         if user_data and bcrypt.check_password_hash(user_data['password_hash'], password):
-            if not user_data['is_verified']:
-                return jsonify({"error": "La cuenta no ha sido verificada. Por favor, verifica tu correo."}), 403
             
-            if not user_data['is_active']:
-                return jsonify({"error": "Tu cuenta ha sido desactivada."}), 403
-
-            # Payload JWT con datos del usuario
+            # Payload JWT
             additional_claims = {
                 "user_uuid": user_data['token'],
                 "username": user_data['username'],
-                "user_id": user_data['user_id']
+                # 🛑 CORRECCIÓN: Usar 'id' del diccionario para las claims
+                "user_id": user_data['id'] 
             }
             
-            access_token = create_access_token(identity=user_data['user_id'], additional_claims=additional_claims)
-            refresh_token = create_refresh_token(identity=user_data['user_id'])
+            # Crear tokens usando 'id' como identity
+            # 🛑 CORRECCIÓN: Usar 'id' del diccionario para la identity
+            access_token = create_access_token(identity=user_data['id'], additional_claims=additional_claims)
+            refresh_token = create_refresh_token(identity=user_data['id']) # 🛑 CORRECCIÓN: Usar 'id' del diccionario para la identity
 
             return jsonify({
                 "message": "Inicio de sesión exitoso.",
@@ -404,12 +395,13 @@ def login():
                 "user_uuid": user_data['token']
             }), 200
         else:
-            return jsonify({"error": "Correo o contraseña incorrectos."}), 401
-    
+            return jsonify({"error": "Credenciales inválidas."}), 401
+
     except Exception as e:
         print(f"ERROR: Fallo general en /login: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
+
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
@@ -418,22 +410,26 @@ def refresh():
     conn = get_db()
     try:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        # 🛑 CORRECCIÓN: Usar 'id' en el SELECT y en la cláusula WHERE
         cursor.execute("""
-            SELECT username, token, user_id
+            SELECT username, token, id
             FROM users
-            WHERE user_id = %s
+            WHERE id = %s
         """, (current_user_id,))
         user_data = cursor.fetchone()
-
+        
         if not user_data:
+            # Esto puede ocurrir si el usuario fue eliminado
             return jsonify({"error": "Usuario no encontrado."}), 404
-
+        
         additional_claims = {
             "user_uuid": user_data['token'],
             "username": user_data['username'],
-            "user_id": user_data['user_id']
+            # 🛑 CORRECCIÓN: Usar 'id' del diccionario para las claims
+            "user_id": user_data['id']
         }
-        
+
+        # Crear nuevo access token
         new_access_token = create_access_token(identity=current_user_id, additional_claims=additional_claims)
         
         return jsonify({
@@ -447,71 +443,87 @@ def refresh():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
 
-@auth_bp.route('/logeado', methods=['GET'])
-@jwt_required()
-def logeado():
-    current_user_id = get_jwt_identity()
-    claims = get_jwt()
-    
-    username = claims.get('username')
-    user_uuid = claims.get('user_uuid')
-    
-    return jsonify({
-        "message": "Token válido",
-        "user_id": current_user_id,
-        "username": username,
-        "user_uuid": user_uuid
-    }), 200
 
-@auth_bp.route('/request-password-reset', methods=['POST'])
-def request_password_reset():
+@auth_bp.route('/resend-code', methods=['POST'])
+def resend_verification_code():
     data = request.get_json()
     email = data.get('email')
 
     if not email:
         return jsonify({"error": "Falta el correo electrónico."}), 400
 
-    conn = None
+    conn = get_db()
+    conn.begin()
     try:
-        conn = get_db()
-        conn.begin()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT verificado, code_expiration FROM users WHERE email = %s", (email,))
+        user_data = cursor.fetchone()
 
-        cursor.execute("SELECT user_id FROM users WHERE email = %s", (email,))
-        if not cursor.fetchone():
-            conn.rollback()
-            return jsonify({"message": "Si el correo existe, se ha enviado un código de restablecimiento."}), 200
+        if not user_data:
+            return jsonify({"error": "Correo electrónico no encontrado."}), 404
+
+        if user_data['verificado']:
+            return jsonify({"message": "La cuenta ya está verificada."}), 200
         
-        # Generar código y tiempo de expiración
-        reset_code = generar_codigo_verificacion()
-        expiration_time = datetime.now() + timedelta(minutes=15)
-        
-        # Actualizar DB
+        # Generar nuevo código y tiempo de expiración
+        new_code = generar_codigo_verificacion()
+        new_expiration = datetime.now() + timedelta(minutes=15)
+
         cursor.execute("""
-            UPDATE users 
-            SET reset_token = %s, reset_token_expira = %s 
+            UPDATE users SET verification_code = %s, code_expiration = %s 
             WHERE email = %s
-        """, (reset_code, expiration_time, email))
-
-        # Enviar correo (usando la función ya modificada)
-        if not enviar_correo_restablecimiento(email, reset_code):
-            conn.rollback()
-            return jsonify({"error": "Fallo al enviar el correo de restablecimiento. Inténtalo de nuevo más tarde."}), 503
+        """, (new_code, new_expiration, email))
         
         conn.commit()
-        return jsonify({"message": "Si el correo existe, se ha enviado un código de restablecimiento."}), 200
 
-    except pymysql.err.MySQLError as e:
-        if conn:
-            conn.rollback()
-        error_msg = f"ERROR-DB: Fallo en transacción de restablecimiento: {str(e)}"
-        print(error_msg, file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({"error": "Error de base de datos."}), 500
+        if not enviar_correo_verificacion(email, new_code):
+            return jsonify({"error": "Fallo al enviar el nuevo código de verificación. Inténtalo de nuevo más tarde."}), 503
+
+        return jsonify({"message": "Nuevo código de verificación enviado a tu correo electrónico."}), 200
+
     except Exception as e:
-        if conn:
-            conn.rollback()
-        print(f"ERROR: Fallo general en /request-password-reset: {str(e)}", file=sys.stderr)
+        conn.rollback()
+        print(f"ERROR: Fallo general en /resend-code: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Error interno del servidor."}), 500
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"error": "Falta el correo electrónico."}), 400
+
+    conn = get_db()
+    conn.begin()
+    try:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        # 🛑 CORRECCIÓN: Usar 'id' en el SELECT
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        if not cursor.fetchone():
+            return jsonify({"error": "Correo electrónico no encontrado."}), 404
+
+        # Generar código de restablecimiento y tiempo de expiración
+        reset_code = generar_codigo_verificacion()
+        expiration_time = datetime.now() + timedelta(minutes=15)
+
+        cursor.execute("""
+            UPDATE users SET reset_token = %s, reset_token_expira = %s 
+            WHERE email = %s
+        """, (reset_code, expiration_time, email))
+        
+        conn.commit()
+
+        if not enviar_correo_restablecimiento(email, reset_code):
+            return jsonify({"error": "Fallo al enviar el código de restablecimiento. Inténtalo de nuevo más tarde."}), 503
+
+        return jsonify({"message": "Código de restablecimiento de contraseña enviado a tu correo electrónico."}), 200
+
+    except Exception as e:
+        conn.rollback()
+        print(f"ERROR: Fallo general en /forgot-password: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
 
@@ -524,56 +536,71 @@ def reset_password():
     new_password = data.get('new_password')
 
     if not email or not code or not new_password:
-        return jsonify({"error": "Faltan datos requeridos (email, código o nueva contraseña)."}), 400
+        return jsonify({"error": "Faltan datos requeridos: correo, código o nueva contraseña."}), 400
     
-    # 1. Validar fortaleza de la nueva contraseña
-    is_valid, reason = validar_password(new_password)
-    if not is_valid:
-        return jsonify({"error": reason}), 400
-    
+    es_valida, mensaje_error = validar_password(new_password)
+    if not es_valida:
+        return jsonify({"error": mensaje_error}), 400
+
     conn = get_db()
+    conn.begin()
     try:
-        conn.begin()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        cursor.execute("""
-            SELECT reset_token, reset_token_expira
-            FROM users
-            WHERE email = %s
-        """, (email,))
-        
+        cursor.execute("SELECT reset_token, reset_token_expira FROM users WHERE email = %s", (email,))
         user_data = cursor.fetchone()
-        
+
         if not user_data:
-            conn.rollback()
             return jsonify({"error": "Correo electrónico no encontrado."}), 404
-            
-        stored_code = user_data['reset_token']
-        expira = user_data['reset_token_expira']
-        
-        if stored_code is None or stored_code != code:
-            conn.rollback()
+
+        reset_token = user_data.get('reset_token')
+        expira = user_data.get('reset_token_expira')
+
+        if reset_token != code:
             return jsonify({"error": "Código de restablecimiento incorrecto."}), 400
             
-        print(f"DEBUG: Código encontrado para email: {email}, expira en: {expira}", file=sys.stderr)
         if expira is None or datetime.now() > expira:
-            print(f"DEBUG: Código de restablecimiento expirado o nulo para {email}. Expiración: {expira}", file=sys.stderr)
             cursor.execute("UPDATE users SET reset_token = NULL, reset_token_expira = NULL WHERE email = %s", (email,))
             conn.commit()
             return jsonify({"error": "El código de restablecimiento ha expirado."}), 400
 
         hashed_new_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
-        print(f"DEBUG: Contraseña hasheada para {email}. Actualizando DB...", file=sys.stderr)
         cursor.execute("""
             UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expira = NULL
             WHERE email = %s
         """, (hashed_new_password, email))
         conn.commit()
-        print(f"DEBUG: Contraseña restablecida exitosamente para {email}.", file=sys.stderr)
         return jsonify({"message": "Contraseña restablecida exitosamente."}), 200
         
     except Exception as e:
         if conn:
             conn.rollback()
         print(f"ERROR: Fallo general en /reset-password: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Error interno del servidor."}), 500
+
+
+@auth_bp.route('/logeado', methods=['GET'])
+@jwt_required()
+def logeado():
+    current_user_id = get_jwt_identity()
+    conn = get_db()
+    try:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        # 🛑 CORRECCIÓN: Usar 'id' en el SELECT y en la cláusula WHERE
+        cursor.execute("SELECT username, token FROM users WHERE id = %s", (current_user_id,))
+        user_data = cursor.fetchone()
+
+        if user_data:
+            return jsonify({
+                "message": "Usuario autenticado.",
+                "user_id": current_user_id, # El ID primario (entero)
+                "username": user_data['username'],
+                "user_uuid": user_data['token'] # El token UUID
+            }), 200
+        else:
+            return jsonify({"error": "Usuario no encontrado."}), 404
+
+    except Exception as e:
+        print(f"ERROR: Fallo general en /logeado: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
