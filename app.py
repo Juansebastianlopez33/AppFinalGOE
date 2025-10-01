@@ -1,5 +1,5 @@
-import eventlet # ¡NUEVA IMPORTACIÓN!
-eventlet.monkey_patch() # ¡NUEVA LÍNEA! Esto debe ir al principio
+import eventlet  # ¡NUEVA IMPORTACIÓN!
+eventlet.monkey_patch()  # ¡NUEVA LÍNEA! Esto debe ir al principio
 
 from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
@@ -15,30 +15,29 @@ from dotenv import load_dotenv
 from threading import Timer, Lock
 from flask_socketio import join_room, leave_room, emit
 
-# 🔑 ya no usamos MySQLdb.constants, solo el flag numérico
 load_dotenv()
 
 app = Flask(__name__)
 
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# =====================================================================
-# Configuración MySQL con soporte para TiDB Cloud (SSL requerido)
-# =====================================================================
-basedir = os.path.abspath(os.path.dirname(__file__))
-
+# ================== MYSQL ==================
 app.config['MYSQL_HOST'] = os.getenv('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.getenv('MYSQL_USER', 'root')
 app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', '')
 app.config['MYSQL_DB'] = os.getenv('MYSQL_DB', 'flask_api')
 app.config['MYSQL_CHARSET'] = 'utf8mb4'
 
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 # 🔑 Forzar SSL si se conecta a TiDB Cloud
 if "tidbcloud.com" in app.config['MYSQL_HOST']:
     app.config['MYSQL_CLIENT_FLAGS'] = [2048]  # 2048 = CLIENT_SSL
-    app.config['MYSQL_SSL_CA'] = os.path.join(basedir, "certs", "isrgrootx1.pem")
-# =====================================================================
+    app.config['MYSQL_SSL'] = {
+        "ca": os.path.join(basedir, "certs", "isrgrootx1.pem")
+    }
 
+# ================== EMAIL ==================
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USER')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASS')
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -46,6 +45,7 @@ app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
 
+# ================== JWT ==================
 app.config["JWT_SECRET_KEY"] = os.getenv('JWT_SECRET_KEY', 'super-secreto-jwt')
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
@@ -55,6 +55,7 @@ jwt = JWTManager(app)
 # ====================================================================================================
 # Manejadores de Errores JWT
 # ====================================================================================================
+
 @app.errorhandler(jwt_exceptions.NoAuthorizationError)
 def handle_auth_error(e):
     print(f"ERROR: Fallo de autorización - {e}", file=sys.stderr)
@@ -74,7 +75,7 @@ def handle_expired_error(e):
 @app.errorhandler(500)
 def handle_500_error(e):
     print(f"ERROR: Un error interno del servidor ocurrió: {e}", file=sys.stderr)
-    traceback.print_exc(file=sys.stderr) 
+    traceback.print_exc(file=sys.stderr) # Imprime el stack trace completo
     return jsonify({
         "verificado": False,
         "message": "Un error interno del servidor ha ocurrido. Por favor, inténtelo de nuevo más tarde."
@@ -82,18 +83,22 @@ def handle_500_error(e):
 
 # ====================================================================================================
 
+# ¡NUEVO! Manejador para solicitudes OPTIONS para CORS Preflight
 @app.before_request
 def handle_options_requests():
     if request.method == 'OPTIONS':
         return '', 200
 
+# ================== RUTAS PARA UPLOADS ==================
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = os.path.join(basedir, UPLOAD_FOLDER)
+
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'fotos_perfil'), exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'publicaciones'), exist_ok=True)
 
 PDF_FOLDER = 'pdfs'
 app.config['PDF_FOLDER'] = os.path.join(basedir, PDF_FOLDER)
+
 os.makedirs(app.config['PDF_FOLDER'], exist_ok=True)
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -102,8 +107,10 @@ app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['API_BASE_URL'] = os.getenv('API_BASE_URL', 'http://localhost:5000')
 app.config['REDIS_URL'] = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
+# ================== INICIALIZAR EXTENSIONES ==================
 inicializar_extensiones(app)
 
+# ================== RUTAS PARA ARCHIVOS ==================
 @app.route('/uploads/fotos_perfil/<username>/<filename>')
 def uploaded_profile_picture(username, filename):
     profile_picture_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'fotos_perfil', username)
@@ -127,6 +134,7 @@ def uploaded_file_legacy(username, filename):
 def uploaded_general_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
+# ================== BLUEPRINTS ==================
 from routes.auth import auth_bp
 from routes.user import user_bp
 from support import support_bp
@@ -139,8 +147,9 @@ app.register_blueprint(user_bp, url_prefix='/user')
 app.register_blueprint(support_bp)
 app.register_blueprint(pdf_bp)
 app.register_blueprint(blog_bp, url_prefix='/blog')
-app.register_blueprint(auth_juego_bp, url_prefix='/auth_juego') 
+app.register_blueprint(auth_juego_bp, url_prefix='/auth_juego')
 
+# ================== BATCH DE PUBLICACIONES ==================
 batched_publication_updates = {}
 batched_publication_updates_lock = Lock()
 BATCH_INTERVAL = 15
@@ -169,6 +178,7 @@ batch_timer = Timer(BATCH_INTERVAL, emit_batched_updates)
 batch_timer.daemon = True
 batch_timer.start()
 
+# ================== SOCKET.IO EVENTS ==================
 @socketio.on('connect')
 def test_connect():
     print('Cliente conectado a Socket.IO')
@@ -189,6 +199,7 @@ def on_leave(data):
     leave_room(room)
     print(f"Cliente salió de la sala: {room}")
 
+# ================== RUN ==================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))  # Render asigna $PORT
     socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
