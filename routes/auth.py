@@ -45,42 +45,60 @@ def enviar_correo_verificacion(destinatario, codigo):
     Envía un correo electrónico con el código de verificación.
     Retorna True si el envío es exitoso, False en caso contrario.
     """
-    print(f"DEBUG: Intentando enviar correo de verificación a: {destinatario}", file=sys.stderr)
-    print(f"DEBUG: MAIL_USER (verificación): {MAIL_USER}", file=sys.stderr)
+    print(f"DEBUG-VERIF: Intentando enviar correo de verificación a: {destinatario}", file=sys.stderr)
+    print(f"DEBUG-VERIF: MAIL_USER configurado: {MAIL_USER}", file=sys.stderr)
     if not MAIL_USER or not MAIL_PASS:
-        print("ERROR: MAIL_USER o MAIL_PASS no están configurados para verificación. No se puede enviar correo.", file=sys.stderr)
+        print("ERROR-VERIF: MAIL_USER o MAIL_PASS no están configurados. No se puede enviar correo.", file=sys.stderr)
         return False
+        
+    remitente = MAIL_USER
+    asunto = "Código de Verificación para tu Cuenta"
+    cuerpo_html = f"""
+    <html>
+    <body>
+        <p>Hola,</p>
+        <p>Gracias por registrarte. Tu código de verificación es:</p>
+        <h3 style="color: #0056b3;">{codigo}</h3>
+        <p>Este código es válido por 15 minutos.</p>
+        <p>Si no solicitaste este código, por favor ignora este correo.</p>
+        <p>Atentamente,</p>
+        <p>El equipo de tu aplicación</p>
+    </body>
+    </html>
+    """
+
+    msg = MIMEText(cuerpo_html, 'html', 'utf-8')
+    msg['From'] = Header(remitente, 'utf-8')
+    msg['To'] = Header(destinatario, 'utf-8')
+    msg['Subject'] = Header(asunto, 'utf-8')
+
+    SMTP_SERVER = 'smtp.gmail.com'
+    SMTP_PORT = 465
+    
     try:
-        remitente = MAIL_USER
-        asunto = "Código de Verificación para tu Cuenta"
-        cuerpo_html = f"""
-        <html>
-        <body>
-            <p>Hola,</p>
-            <p>Gracias por registrarte. Tu código de verificación es:</p>
-            <h3 style="color: #0056b3;">{codigo}</h3>
-            <p>Este código es válido por 15 minutos.</p>
-            <p>Si no solicitaste este código, por favor ignora este correo.</p>
-            <p>Atentamente,</p>
-            <p>El equipo de tu aplicación</p>
-        </body>
-        </html>
-        """
-
-        msg = MIMEText(cuerpo_html, 'html', 'utf-8')
-        msg['From'] = Header(remitente, 'utf-8')
-        msg['To'] = Header(destinatario, 'utf-8')
-        msg['Subject'] = Header(asunto, 'utf-8')
-
+        print(f"DEBUG-VERIF: Conectando a {SMTP_SERVER}:{SMTP_PORT} con SSL...", file=sys.stderr)
         # ✅ CORRECCIÓN: Usar smtplib.SMTP_SSL y el puerto 465
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             # server.starttls() # No es necesario con SMTP_SSL
             server.login(MAIL_USER, MAIL_PASS)
+            print(f"DEBUG-VERIF: Login SMTP exitoso.", file=sys.stderr)
             server.sendmail(remitente, destinatario, msg.as_string())
-        print(f"DEBUG: Correo de verificación enviado exitosamente a: {destinatario}", file=sys.stderr)
+        print(f"DEBUG-VERIF: Correo de verificación enviado exitosamente a: {destinatario}", file=sys.stderr)
         return True
+    except smtplib.SMTPAuthenticationError:
+        print("ERROR-VERIF: Fallo de autenticación SMTP. Revisa tu MAIL_USER y MAIL_PASS. Si usas Gmail, verifica que la Contraseña de Aplicación esté bien configurada.", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
+    except smtplib.SMTPServerDisconnected:
+        print("ERROR-VERIF: Servidor SMTP desconectado. Revisa la red o el host/puerto.", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
+    except smtplib.SMTPConnectError as e:
+        print(f"ERROR-VERIF: Fallo de conexión al servidor SMTP. Host/Puerto: {SMTP_SERVER}:{SMTP_PORT}. Detalle: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
     except Exception as e:
-        print(f"ERROR: Fallo al enviar correo de verificación a {destinatario}: {e}", file=sys.stderr)
+        print(f"ERROR-VERIF: Fallo general al enviar correo de verificación a {destinatario}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
 
@@ -89,10 +107,10 @@ def enviar_correo_restablecimiento(destinatario, reset_code):
     Envía un correo electrónico con el CÓDIGO para restablecer la contraseña.
     Retorna True si el envío es exitoso, False en caso contrario.
     """
-    print(f"DEBUG: Intentando enviar correo de restablecimiento a: {destinatario}", file=sys.stderr)
-    print(f"DEBUG: MAIL_USER (restablecimiento): {MAIL_USER}", file=sys.stderr) # Muestra el usuario, pero no la contraseña
+    print(f"DEBUG-RESET: Intentando enviar correo de restablecimiento a: {destinatario}", file=sys.stderr)
+    print(f"DEBUG-RESET: MAIL_USER configurado: {MAIL_USER}", file=sys.stderr)
     if not MAIL_USER or not MAIL_PASS:
-        print("ERROR: MAIL_USER o MAIL_PASS no están configurados para restablecimiento. No se puede enviar correo.", file=sys.stderr)
+        print("ERROR-RESET: MAIL_USER o MAIL_PASS no están configurados para restablecimiento. No se puede enviar correo.", file=sys.stderr)
         return False
 
     reset_email_body = f"""
@@ -115,28 +133,33 @@ def enviar_correo_restablecimiento(destinatario, reset_code):
     msg['From'] = MAIL_USER
     msg['To'] = destinatario
 
+    SMTP_SERVER = 'smtp.gmail.com'
+    SMTP_PORT = 465
+
     try:
+        print(f"DEBUG-RESET: Conectando a {SMTP_SERVER}:{SMTP_PORT} con SSL...", file=sys.stderr)
         # ✅ CORRECCIÓN: Usar smtplib.SMTP_SSL y el puerto 465
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             # server.starttls() # No es necesario con SMTP_SSL
             server.login(MAIL_USER, MAIL_PASS)
+            print(f"DEBUG-RESET: Login SMTP exitoso.", file=sys.stderr)
             server.send_message(msg)
-        print(f"DEBUG: Correo de restablecimiento enviado exitosamente a: {destinatario}", file=sys.stderr)
+        print(f"DEBUG-RESET: Correo de restablecimiento enviado exitosamente a: {destinatario}", file=sys.stderr)
         return True
     except smtplib.SMTPAuthenticationError:
-        print("ERROR: Fallo de autenticación SMTP. Revisa tu MAIL_USER y MAIL_PASS (contraseña de aplicación si usas 2FA).", file=sys.stderr)
+        print("ERROR-RESET: Fallo de autenticación SMTP. Revisa tu MAIL_USER y MAIL_PASS (Contraseña de Aplicación si usas 2FA).", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
     except smtplib.SMTPServerDisconnected:
-        print("ERROR: El servidor SMTP se desconectó inesperadamente. Revisa la conexión o configuración.", file=sys.stderr)
+        print("ERROR-RESET: Servidor SMTP desconectado. Revisa la conexión o configuración.", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
-    except smtplib.SMTPConnectError:
-        print("ERROR: No se pudo conectar al servidor SMTP. Revisa la dirección y el puerto.", file=sys.stderr)
+    except smtplib.SMTPConnectError as e:
+        print(f"ERROR-RESET: Fallo de conexión al servidor SMTP. Host/Puerto: {SMTP_SERVER}:{SMTP_PORT}. Detalle: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
     except Exception as e:
-        print(f"ERROR: Fallo general al enviar correo de restablecimiento a {destinatario}: {str(e)}", file=sys.stderr)
+        print(f"ERROR-RESET: Fallo general al enviar correo de restablecimiento a {destinatario}: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
 
@@ -145,30 +168,48 @@ def enviar_correo_bienvenida(nombre_usuario, destinatario):
     Envía un correo electrónico de bienvenida después de la verificación exitosa.
     Retorna True si el envío es exitoso, False en caso contrario.
     """
-    print(f"DEBUG: Intentando enviar correo de bienvenida a: {destinatario}", file=sys.stderr)
-    print(f"DEBUG: MAIL_USER (bienvenida): {MAIL_USER}", file=sys.stderr)
+    print(f"DEBUG-WELCOME: Intentando enviar correo de bienvenida a: {destinatario}", file=sys.stderr)
+    print(f"DEBUG-WELCOME: MAIL_USER configurado: {MAIL_USER}", file=sys.stderr)
     if not MAIL_USER or not MAIL_PASS:
-        print("ERROR: MAIL_USER o MAIL_PASS no están configurados para bienvenida. No se puede enviar correo.", file=sys.stderr)
+        print("ERROR-WELCOME: MAIL_USER o MAIL_PASS no están configurados para bienvenida. No se puede enviar correo.", file=sys.stderr)
         return False
-    try:
-        cuerpo = f"¡Hola {nombre_usuario}!\n\n" \
-                 f"Tu cuenta en God of Eternia ha sido verificada exitosamente. ¡Bienvenido a la aventura!\n\n" \
-                 f"¡Que disfrutes tu experiencia!\n" \
-                 f"El equipo de God of Eternia."
-        msg = MIMEText(cuerpo, 'plain', 'utf-8')
-        msg['Subject'] = Header('¡Bienvenido a God of Eternia!', 'utf-8')
-        msg['From'] = MAIL_USER
-        msg['To'] = destinatario
+    
+    cuerpo = f"¡Hola {nombre_usuario}!\n\n" \
+             f"Tu cuenta en God of Eternia ha sido verificada exitosamente. ¡Bienvenido a la aventura!\n\n" \
+             f"¡Que disfrutes tu experiencia!\n" \
+             f"El equipo de God of Eternia."
+    msg = MIMEText(cuerpo, 'plain', 'utf-8')
+    msg['Subject'] = Header('¡Bienvenido a God of Eternia!', 'utf-8')
+    msg['From'] = MAIL_USER
+    msg['To'] = destinatario
 
+    SMTP_SERVER = 'smtp.gmail.com'
+    SMTP_PORT = 465
+    
+    try:
+        print(f"DEBUG-WELCOME: Conectando a {SMTP_SERVER}:{SMTP_PORT} con SSL...", file=sys.stderr)
         # ✅ CORRECCIÓN: Usar smtplib.SMTP_SSL y el puerto 465
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             # server.starttls() # No es necesario con SMTP_SSL
             server.login(MAIL_USER, MAIL_PASS)
+            print(f"DEBUG-WELCOME: Login SMTP exitoso.", file=sys.stderr)
             server.send_message(msg)
-        print(f"DEBUG: Correo de bienvenida enviado exitosamente a: {destinatario}", file=sys.stderr)
+        print(f"DEBUG-WELCOME: Correo de bienvenida enviado exitosamente a: {destinatario}", file=sys.stderr)
         return True
+    except smtplib.SMTPAuthenticationError:
+        print("ERROR-WELCOME: Fallo de autenticación SMTP. Revisa tu MAIL_USER y MAIL_PASS (Contraseña de Aplicación si usas 2FA).", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
+    except smtplib.SMTPServerDisconnected:
+        print("ERROR-WELCOME: Servidor SMTP desconectado. Revisa la conexión o configuración.", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
+    except smtplib.SMTPConnectError as e:
+        print(f"ERROR-WELCOME: Fallo de conexión al servidor SMTP. Host/Puerto: {SMTP_SERVER}:{SMTP_PORT}. Detalle: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return False
     except Exception as e:
-        print(f"ERROR: Fallo al enviar correo de bienvenida a {destinatario}: {str(e)}", file=sys.stderr)
+        print(f"ERROR-WELCOME: Fallo general al enviar correo de bienvenida a {destinatario}: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return False
 
@@ -221,7 +262,7 @@ def register():
         if password_error:
             return jsonify({"error": password_error}), 400
 
-        # ✅ CAMBIO 1: Obtener la conexión usando get_db()
+        # ✅ Obtener la conexión usando get_db(). PyMySQL es transaccional por defecto.
         conn = get_db()
         cursor = conn.cursor()
 
@@ -240,11 +281,10 @@ def register():
         code_expiration = datetime.now() + timedelta(minutes=15) # Expira en 15 minutos
 
         # Generar un token UUID único para el usuario.
-        # Esta columna 'token' puede ser usada para identificar públicamente al usuario
-        # sin exponer el ID de la base de datos, o para fines de seguimiento.
         new_user_uuid_token = generar_uuid_token()
 
-        # Insertar el nuevo usuario con el token UUID generado
+        # 🚀 1. INSERTAR EL NUEVO USUARIO (AÚN SIN COMMIT)
+        print(f"DEBUG-REG: Insertando usuario {username} en DB (sin commit)...", file=sys.stderr)
         cursor.execute(
             """
             INSERT INTO users (username, email, password_hash, token, verificado, verification_code, code_expiration, DescripUsuario)
@@ -252,29 +292,39 @@ def register():
             """,
             (username, normalized_email, hashed_password, new_user_uuid_token, 0, verification_code, code_expiration, descrip_usuario)
         )
-        # ✅ CAMBIO 2: Usar conn.commit()
-        conn.commit()
+        # lastrowid obtiene el ID del usuario recién insertado (aunque no se haya hecho commit)
+        new_user_id = cursor.lastrowid 
 
-        # Enviar correo de verificación
-        if not enviar_correo_verificacion(email, verification_code):
-            print(f"Advertencia: No se pudo enviar el correo de verificación a {email}", file=sys.stderr)
+        # 🚀 2. INTENTAR ENVIAR CORREO
+        print(f"DEBUG-REG: Llamando a enviar_correo_verificacion para {email}...", file=sys.stderr)
+        email_sent_successfully = enviar_correo_verificacion(email, verification_code)
+
+        if not email_sent_successfully:
+            # 🚀 3. SI EL CORREO FALLA, HACER ROLLBACK
+            conn.rollback()
+            print(f"ERROR-REG: Fallo al enviar correo de verificación a {email}. Se ha ejecutado ROLLBACK. Usuario NO registrado.", file=sys.stderr)
+            # Devolver un error específico al cliente
+            return jsonify({"error": "Fallo en el servidor al enviar el correo de verificación. Por favor, revise la configuración del correo o inténtelo más tarde."}), 500
         
-        # El cursor.close() se hace en el finally
+        # 🚀 4. SI EL CORREO ES EXITOSO, HACER COMMIT
+        conn.commit()
+        print(f"DEBUG-REG: Correo enviado con éxito. COMMIT realizado para el usuario ID: {new_user_id}.", file=sys.stderr)
         
         return jsonify({
             "message": "Registro exitoso. Se ha enviado un código de verificación a su correo.",
-            "user_id": cursor.lastrowid # lastrowid obtiene el ID del usuario recién insertado
+            "user_id": new_user_id
         }), 201
 
     except Exception as e:
         # Asegúrate de hacer un rollback si ocurre un error inesperado antes del commit
         if conn: # Verifica si la conexión está abierta
             conn.rollback()
+            print("ERROR-REG: Excepción inesperada. Se ejecutó ROLLBACK.", file=sys.stderr)
         print(f"Error en /register: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al registrar usuario."}), 500
     finally:
-        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
+        # Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
         if conn:
@@ -292,7 +342,7 @@ def verify_email():
         if not all([email, verification_code]):
             return jsonify({"error": "Faltan datos requeridos (email, verification_code)."}), 400
 
-        # ✅ CAMBIO 1: Obtener la conexión
+        # ✅ Obtener la conexión
         conn = get_db()
         cursor = conn.cursor()
 
@@ -317,16 +367,15 @@ def verify_email():
         if code_expiration is None or datetime.now() > code_expiration:
             # Limpiar el código expirado de la base de datos
             cursor.execute("UPDATE users SET verification_code = NULL, code_expiration = NULL WHERE id = %s", (user_id,))
-            # ✅ CAMBIO 2: Usar conn.commit()
             conn.commit() # Aplicar el cambio para limpiar el token expirado
             return jsonify({"error": "El código de verificación ha expirado. Por favor, solicita uno nuevo."}), 401
 
         # Si el código es válido y no ha expirado, actualizar el estado 'verificado'
         cursor.execute("UPDATE users SET verificado = 1, verification_code = NULL, code_expiration = NULL WHERE id = %s", (user_id,))
-        # ✅ CAMBIO 3: Usar conn.commit()
         conn.commit()
 
         # Enviar correo de bienvenida
+        # NOTA: Este correo de bienvenida no bloquea el proceso de verificación.
         if not enviar_correo_bienvenida(username, email):
             print(f"Advertencia: No se pudo enviar el correo de bienvenida a {email}", file=sys.stderr)
 
@@ -339,7 +388,7 @@ def verify_email():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al verificar correo."}), 500
     finally:
-        # ✅ CAMBIO 4: Asegurar el cierre de la conexión (y cursor)
+        # Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
         if conn:
@@ -357,9 +406,9 @@ def login():
         if not all([email, password]):
             return jsonify({"error": "Faltan datos requeridos (email, password)."}), 400
 
-        # ✅ CAMBIO 1: Obtener la conexión
+        # ✅ Obtener la conexión
         conn = get_db()
-        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        # ✅ Usar pymysql.cursors.DictCursor
         cursor = conn.cursor(pymysql.cursors.DictCursor) # Usar DictCursor aquí
         
         # Normalizar el correo electrónico para la búsqueda
@@ -404,7 +453,7 @@ def login():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al iniciar sesión."}), 500
     finally:
-        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
+        # Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
         if conn:
@@ -495,9 +544,9 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
         normalized_email = email.strip().lower()
         print(f"DEBUG: Correo normalizado para búsqueda: {normalized_email}", file=sys.stderr)
 
-        # ✅ CAMBIO 1: Obtener la conexión
+        # ✅ Obtener la conexión
         conn = get_db()
-        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        # ✅ Usar pymysql.cursors.DictCursor
         cursor = conn.cursor(pymysql.cursors.DictCursor) 
         cursor.execute("SELECT id, email FROM users WHERE email = %s", (normalized_email,))
         user = cursor.fetchone()
@@ -517,7 +566,6 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
             cursor.execute("""
                 UPDATE users SET reset_token = %s, reset_token_expira = %s WHERE email = %s
             """, (reset_code, expira_str, normalized_email)) # Usar normalized_email aquí
-            # ✅ CAMBIO 3: Usar conn.commit()
             conn.commit()
             
             # Restaurado el control de errores al enviar correo de restablecimiento
@@ -535,7 +583,7 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
     finally:
-        # ✅ CAMBIO 4: Asegurar el cierre de la conexión (y cursor)
+        # Asegurar el cierre de la conexión (y cursor)
         if cursor: # Asegura que el cursor se cierre incluso si hay un error
             cursor.close()
         if conn:
@@ -573,9 +621,9 @@ def reset_password():
     conn = None
     cursor = None # Inicializar cursor a None
     try:
-        # ✅ CAMBIO 1: Obtener la conexión
+        # ✅ Obtener la conexión
         conn = get_db()
-        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        # ✅ Usar pymysql.cursors.DictCursor
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         # Buscar usuario por el CÓDIGO de restablecimiento (almacenado en 'reset_token')
         cursor.execute("SELECT email, reset_token_expira FROM users WHERE reset_token = %s", (reset_code,))
@@ -594,7 +642,6 @@ def reset_password():
         if expira is None or datetime.now() > expira:
             print(f"DEBUG: Código de restablecimiento expirado o nulo para {email}. Expiración: {expira}", file=sys.stderr)
             cursor.execute("UPDATE users SET reset_token = NULL, reset_token_expira = NULL WHERE email = %s", (email,))
-            # ✅ CAMBIO 3: Usar conn.commit()
             conn.commit()
             return jsonify({"error": "El código de restablecimiento ha expirado."}), 400
 
@@ -604,7 +651,6 @@ def reset_password():
             UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expira = NULL
             WHERE email = %s
         """, (hashed_new_password, email))
-        # ✅ CAMBIO 4: Usar conn.commit()
         conn.commit()
         print(f"DEBUG: Contraseña restablecida exitosamente para {email}.", file=sys.stderr)
         return jsonify({"message": "Contraseña restablecida exitosamente."}), 200
@@ -613,7 +659,7 @@ def reset_password():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
     finally:
-        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
+        # Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
         if conn:
