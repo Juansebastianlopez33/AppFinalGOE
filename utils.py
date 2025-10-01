@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 from email.header import Header
 import smtplib
 import os
+import sys # Añadido para imprimir errores a stderr
 from dotenv import load_dotenv
 
 import cloudinary
@@ -13,6 +14,10 @@ load_dotenv()
 
 MAIL_USER = os.getenv('MAIL_USER')
 MAIL_PASS = os.getenv('MAIL_PASS') 
+
+# 🚀 [CAMBIO 1] Variables de SendGrid/SMTP Externo
+SMTP_SERVER = os.getenv('MAIL_HOST', 'smtp.sendgrid.net') 
+SMTP_PORT = int(os.getenv('MAIL_PORT', 587)) 
 
 def generar_token():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=64))
@@ -28,16 +33,20 @@ def enviar_correo_verificacion(destinatario, codigo):
     msg['To'] = destinatario
 
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        # 🚀 [CAMBIO 2] Conexión SMTP con smtplib.SMTP y STARTTLS para SendGrid
+        print(f"DEBUG-UTILS: Conectando a {SMTP_SERVER}:{SMTP_PORT} con STARTTLS...", file=sys.stderr)
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls() # ¡Obligatorio para el puerto 587!
             server.login(MAIL_USER, MAIL_PASS)
             server.send_message(msg)
+        print(f"DEBUG-UTILS: Correo enviado exitosamente a: {destinatario}", file=sys.stderr)
         return True
     except Exception as e:
-        print("Error al enviar correo:", str(e))
+        print(f"ERROR-UTILS: Fallo al enviar correo a {destinatario}: {str(e)}", file=sys.stderr)
         return False
 
 
-# 🚀 Configuración de Cloudinary
+# 🚀 Configuración de Cloudinary (Se mantiene igual)
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
@@ -75,6 +84,7 @@ def upload_image_to_cloudinary(file, folder="general", public_id=None, overwrite
 
 import tempfile
 import json
+import requests # Importar requests aquí si no está
 
 def upload_json_to_cloudinary(data, folder="users_data", public_id=None):
     """
@@ -107,7 +117,7 @@ def download_json_from_cloudinary(url):
     Descarga un JSON desde una URL de Cloudinary.
     """
     try:
-        import requests
+        # import requests # Se movió al principio del bloque, pero se debe asegurar que está instalado
         resp = requests.get(url)
         resp.raise_for_status()
         return resp.json()
