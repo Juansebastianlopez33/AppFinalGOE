@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
-from extensions import mysql, bcrypt
+# ❌ Reemplazar: from extensions import mysql, bcrypt
+# ✅ Nueva importación:
+from extensions import bcrypt, get_db
 import random
 import string
 from datetime import datetime, timedelta
@@ -16,7 +18,9 @@ import uuid # Importa uuid para generar tokens únicos para usuarios
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, get_jwt
 
 from dotenv import load_dotenv
-from MySQLdb.cursors import DictCursor # Importar DictCursor aquí
+# ❌ Reemplazar: from MySQLdb.cursors import DictCursor # Importar DictCursor aquí
+# ✅ Nueva importación:
+import pymysql.cursors # Usaremos pymysql.cursors.DictCursor
 
 # IMPORTANTE: Importar get_user_details desde user.py
 from routes.user import get_user_details
@@ -194,6 +198,8 @@ def register():
         response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
         return response
 
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         username = data.get('username')
@@ -213,7 +219,8 @@ def register():
         if password_error:
             return jsonify({"error": password_error}), 400
 
-        conn = mysql.connection
+        # ✅ CAMBIO 1: Obtener la conexión usando get_db()
+        conn = get_db()
         cursor = conn.cursor()
 
         # Normalizar el correo electrónico para la verificación de existencia
@@ -222,7 +229,6 @@ def register():
         # Verificar si el usuario o el correo ya existen
         cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, normalized_email))
         if cursor.fetchone():
-            cursor.close()
             return jsonify({"error": "El nombre de usuario o correo electrónico ya está registrado."}), 409
 
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
@@ -244,14 +250,14 @@ def register():
             """,
             (username, normalized_email, hashed_password, new_user_uuid_token, 0, verification_code, code_expiration, descrip_usuario)
         )
+        # ✅ CAMBIO 2: Usar conn.commit()
         conn.commit()
 
         # Enviar correo de verificación
         if not enviar_correo_verificacion(email, verification_code):
             print(f"Advertencia: No se pudo enviar el correo de verificación a {email}", file=sys.stderr)
         
-        # Cierra el cursor después de usarlo
-        cursor.close()
+        # El cursor.close() se hace en el finally
         
         return jsonify({
             "message": "Registro exitoso. Se ha enviado un código de verificación a su correo.",
@@ -260,14 +266,22 @@ def register():
 
     except Exception as e:
         # Asegúrate de hacer un rollback si ocurre un error inesperado antes del commit
-        if 'conn' in locals() and conn.open: # Verifica si la conexión está abierta
+        if conn: # Verifica si la conexión está abierta
             conn.rollback()
         print(f"Error en /register: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al registrar usuario."}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 @auth_bp.route('/verificar', methods=['POST'])
 def verify_email():
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         email = data.get('email')
@@ -276,7 +290,8 @@ def verify_email():
         if not all([email, verification_code]):
             return jsonify({"error": "Faltan datos requeridos (email, verification_code)."}), 400
 
-        conn = mysql.connection
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
         cursor = conn.cursor()
 
         # Normalizar el correo electrónico para la búsqueda
@@ -287,30 +302,27 @@ def verify_email():
         user_info = cursor.fetchone()
 
         if not user_info:
-            cursor.close()
             return jsonify({"error": "Email no encontrado."}), 404
         
         user_id, username, stored_code, code_expiration, is_verified = user_info
 
         if is_verified:
-            cursor.close()
             return jsonify({"message": "La cuenta ya está verificada."}), 200
 
         if stored_code != verification_code:
-            cursor.close()
             return jsonify({"error": "Código de verificación inválido."}), 401
 
         if code_expiration is None or datetime.now() > code_expiration:
             # Limpiar el código expirado de la base de datos
             cursor.execute("UPDATE users SET verification_code = NULL, code_expiration = NULL WHERE id = %s", (user_id,))
+            # ✅ CAMBIO 2: Usar conn.commit()
             conn.commit() # Aplicar el cambio para limpiar el token expirado
-            cursor.close()
             return jsonify({"error": "El código de verificación ha expirado. Por favor, solicita uno nuevo."}), 401
 
         # Si el código es válido y no ha expirado, actualizar el estado 'verificado'
         cursor.execute("UPDATE users SET verificado = 1, verification_code = NULL, code_expiration = NULL WHERE id = %s", (user_id,))
+        # ✅ CAMBIO 3: Usar conn.commit()
         conn.commit()
-        cursor.close()
 
         # Enviar correo de bienvenida
         if not enviar_correo_bienvenida(username, email):
@@ -319,14 +331,22 @@ def verify_email():
         return jsonify({"message": "Correo electrónico verificado exitosamente."}), 200
 
     except Exception as e:
-        if 'conn' in locals() and conn.open:
+        if conn:
             conn.rollback()
         print(f"Error en /verify-email: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al verificar correo."}), 500
+    finally:
+        # ✅ CAMBIO 4: Asegurar el cierre de la conexión (y cursor)
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         email = data.get('email')
@@ -335,8 +355,10 @@ def login():
         if not all([email, password]):
             return jsonify({"error": "Faltan datos requeridos (email, password)."}), 400
 
-        conn = mysql.connection
-        cursor = conn.cursor(DictCursor) # Usar DictCursor aquí
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor) # Usar DictCursor aquí
         
         # Normalizar el correo electrónico para la búsqueda
         normalized_email = email.strip().lower()
@@ -344,8 +366,7 @@ def login():
         # Obtener id, username, password_hash Y verificado
         cursor.execute("SELECT id, username, email, password_hash, verificado FROM users WHERE email = %s", (normalized_email,))
         user = cursor.fetchone()
-        cursor.close()
-
+        
         if user and bcrypt.check_password_hash(user['password_hash'], password): # Usar 'password_hash' como clave
             user_id = user['id']
             username = user['username']
@@ -380,6 +401,12 @@ def login():
         print(f"Error en /login: {str(e)}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al iniciar sesión."}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True) # Este endpoint requiere un refresh token válido
@@ -391,6 +418,7 @@ def refresh():
     current_user_id = get_jwt_identity() # Obtiene la identidad (user_id) del refresh token
     
     # Obtener los detalles actualizados del usuario desde la base de datos
+    # NOTA: Se asume que get_user_details() internamente utiliza get_db()
     user_details = get_user_details(current_user_id) # Usamos la función importada
 
     if not user_details:
@@ -458,14 +486,17 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
         print("DEBUG: Correo electrónico no proporcionado en la solicitud.", file=sys.stderr)
         return jsonify({"error": "El correo electrónico es obligatorio."}), 400
 
+    conn = None
     cursor = None # Inicializar cursor a None
     try:
         # Normalizar el correo electrónico antes de la consulta
         normalized_email = email.strip().lower()
         print(f"DEBUG: Correo normalizado para búsqueda: {normalized_email}", file=sys.stderr)
 
-        # Usar DictCursor para una mejor manipulación de los resultados
-        cursor = mysql.connection.cursor(DictCursor) 
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor) 
         cursor.execute("SELECT id, email FROM users WHERE email = %s", (normalized_email,))
         user = cursor.fetchone()
         
@@ -484,7 +515,8 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
             cursor.execute("""
                 UPDATE users SET reset_token = %s, reset_token_expira = %s WHERE email = %s
             """, (reset_code, expira_str, normalized_email)) # Usar normalized_email aquí
-            mysql.connection.commit()
+            # ✅ CAMBIO 3: Usar conn.commit()
+            conn.commit()
             
             # Restaurado el control de errores al enviar correo de restablecimiento
             print(f"DEBUG: Llamando a enviar_correo_restablecimiento para {email} con código {reset_code}", file=sys.stderr)
@@ -501,8 +533,11 @@ def request_password_reset(): # REVERTIDO: Nombre de la función
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
     finally:
+        # ✅ CAMBIO 4: Asegurar el cierre de la conexión (y cursor)
         if cursor: # Asegura que el cursor se cierre incluso si hay un error
             cursor.close()
+        if conn:
+            conn.close()
 
 # REVERTIDO: Nombre de la ruta a /reset-password
 @auth_bp.route('/reset-password', methods=['POST', 'OPTIONS'])
@@ -533,10 +568,13 @@ def reset_password():
         print(f"DEBUG: Error de validación de contraseña: {password_error}", file=sys.stderr)
         return jsonify({"error": password_error}), 400
 
+    conn = None
     cursor = None # Inicializar cursor a None
     try:
-        # Usar DictCursor para una mejor manipulación de los resultados
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         # Buscar usuario por el CÓDIGO de restablecimiento (almacenado en 'reset_token')
         cursor.execute("SELECT email, reset_token_expira FROM users WHERE reset_token = %s", (reset_code,))
         user_info = cursor.fetchone()
@@ -554,7 +592,8 @@ def reset_password():
         if expira is None or datetime.now() > expira:
             print(f"DEBUG: Código de restablecimiento expirado o nulo para {email}. Expiración: {expira}", file=sys.stderr)
             cursor.execute("UPDATE users SET reset_token = NULL, reset_token_expira = NULL WHERE email = %s", (email,))
-            mysql.connection.commit()
+            # ✅ CAMBIO 3: Usar conn.commit()
+            conn.commit()
             return jsonify({"error": "El código de restablecimiento ha expirado."}), 400
 
         hashed_new_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
@@ -563,7 +602,8 @@ def reset_password():
             UPDATE users SET password_hash = %s, reset_token = NULL, reset_token_expira = NULL
             WHERE email = %s
         """, (hashed_new_password, email))
-        mysql.connection.commit()
+        # ✅ CAMBIO 4: Usar conn.commit()
+        conn.commit()
         print(f"DEBUG: Contraseña restablecida exitosamente para {email}.", file=sys.stderr)
         return jsonify({"message": "Contraseña restablecida exitosamente."}), 200
     except Exception as e:
@@ -571,5 +611,8 @@ def reset_password():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor."}), 500
     finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()

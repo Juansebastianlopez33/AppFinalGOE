@@ -1,6 +1,4 @@
 from flask import Blueprint, request, jsonify, current_app
-from extensions import mysql
-from MySQLdb.cursors import DictCursor
 from werkzeug.utils import secure_filename
 import os
 import sys
@@ -10,7 +8,10 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 # ✅ Import directo desde la raíz
 from utils import upload_image_to_cloudinary
-
+# ❌ Reemplazar: from db import get_db_connection
+# ✅ Nuevas importaciones:
+from extensions import get_db, close_db
+import pymysql.cursors # Para DictCursor
 
 user_bp = Blueprint('user', __name__)
 
@@ -35,15 +36,24 @@ def get_user_from_jwt(auth_header):
         return None
 
 def get_user_details(user_id):
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, username, email, DescripUsuario, verificado, foto_perfil FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
+
+        if not user:
+            return None
 
         if user['foto_perfil']:
             user['foto_perfil_url'] = user['foto_perfil']
         else:
+            # NOTA: Usar URL de Cloudinary o una URL absoluta por defecto si es posible.
+            # Se mantiene la lógica original, pero es mejor usar una URL estática de Cloudinary.
             base_url = current_app.config.get('API_BASE_URL', request.url_root.rstrip('/'))
             user['foto_perfil_url'] = f"{base_url}/uploads/default-avatar.png"
 
@@ -51,11 +61,15 @@ def get_user_details(user_id):
         user.pop('foto_perfil', None)
 
         return user
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error en get_user_details para ID {user_id}: {e}", file=sys.stderr)
         return None
     finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @user_bp.route('/logeado', methods=['GET'])
 def logeado():
@@ -66,6 +80,7 @@ def logeado():
         return jsonify({"logeado": 0, "error": "Token inválido o ausente"}), 401
 
     current_user_id = user_payload.get('user_id')
+    # get_user_details ya usa la nueva conexión
     user_details_from_db = get_user_details(current_user_id)
 
     if not user_details_from_db:
@@ -93,18 +108,22 @@ def perfil():
     if not claims.get('verificado'):
         return jsonify({"error": "Usuario no verificado"}), 403
 
+    # get_user_details ya usa la nueva conexión
     user_details_from_db = get_user_details(current_user_id)
     if not user_details_from_db:
         return jsonify({"error": "Usuario no encontrado"}), 404
 
-    conn = mysql.connection
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
     try:
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
         if request.method == 'GET':
-            dict_cursor = conn.cursor(DictCursor)
-            dict_cursor.execute("SELECT dificultad_id, puntaje_actual FROM partidas WHERE user_id = %s", (current_user_id,))
-            puntajes = dict_cursor.fetchall()
-            dict_cursor.close()
+            cursor.execute("SELECT dificultad_id, puntaje_actual FROM partidas WHERE user_id = %s", (current_user_id,))
+            puntajes = cursor.fetchall()
 
             return jsonify({
                 "username": user_details_from_db.get('username'),
@@ -127,16 +146,30 @@ def perfil():
             if cursor.fetchone():
                 return jsonify({"error": "El nombre de usuario ya está en uso"}), 409
 
-            cursor.execute("UPDATE users SET DescripUsuario = %s, username = %s WHERE id = %s", (nueva_descripcion, nuevo_username, current_user_id))
-            mysql.connection.commit()
+            # ✅ CAMBIO 3: Usar cursor de conn (ya es un DictCursor, pero para UPDATE no importa)
+            cursor_update = conn.cursor()
+            cursor_update.execute(
+                "UPDATE users SET DescripUsuario = %s, username = %s WHERE id = %s",
+                (nueva_descripcion, nuevo_username, current_user_id)
+            )
+            cursor_update.close()
+            # ✅ CAMBIO 4: Usar conn.commit()
+            conn.commit()
 
             return jsonify({"mensaje": "Perfil actualizado correctamente"}), 200
-    except Exception:
-        conn.rollback()
+    except Exception as e:
+        if conn:
+            # ✅ CAMBIO 5: Usar conn.rollback()
+            conn.rollback()
+        print("❌ Error en /perfil:", e, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno al actualizar perfil"}), 500
     finally:
+        # ✅ CAMBIO 6: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @user_bp.route("/perfil/foto", methods=["PUT"])
 @jwt_required()
@@ -145,15 +178,15 @@ def actualizar_foto_perfil():
     print("📌 [DEBUG] Usuario autenticado:", user_id)
 
     if "profile_picture" not in request.files:
-        print("❌ [DEBUG] No se recibió el archivo 'profile_picture'")
         return jsonify({"error": "No se envió ninguna imagen"}), 400
 
     file = request.files["profile_picture"]
     print("📌 [DEBUG] Archivo recibido:", file.filename, "Content-Type:", file.content_type)
 
+    conn = None
+    cursor = None
     try:
         public_id = f"fotos_perfil/{user_id}/profile_picture"
-        print("📌 [DEBUG] Subiendo a Cloudinary con public_id:", public_id)
 
         upload_result = upload_image_to_cloudinary(
             file=file,
@@ -161,26 +194,25 @@ def actualizar_foto_perfil():
             public_id="profile_picture"
         )
 
-        print("✅ [DEBUG] Respuesta Cloudinary:", upload_result)
-
         foto_url = upload_result.get("secure_url")
         version = upload_result.get("version")
-        print("📌 [DEBUG] URL final:", foto_url, "Versión:", version)
 
         if not foto_url:
-            print("❌ [DEBUG] Cloudinary no devolvió secure_url")
             return jsonify({"error": "Error al obtener URL de Cloudinary"}), 500
 
-        # Guardar en DB (tabla users ✅)
-        cursor = mysql.connection.cursor()
+        # Guardar en DB
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar cursor de conn
+        cursor = conn.cursor()
         cursor.execute(
             "UPDATE users SET foto_perfil = %s WHERE id = %s",
             (foto_url, user_id)
         )
-        mysql.connection.commit()
-        cursor.close()
-
-        print("✅ [DEBUG] Foto actualizada en la DB")
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
+        # cursor.close() se hace en el finally
+        # conn.close() se hace en el finally
 
         return jsonify({
             "message": "Foto de perfil actualizada correctamente",
@@ -189,6 +221,14 @@ def actualizar_foto_perfil():
         }), 200
 
     except Exception as e:
-        print("❌ [DEBUG] Excepción en actualizar_foto_perfil:", str(e))
-        traceback.print_exc()
+        traceback.print_exc(file=sys.stderr)
+        # ✅ CAMBIO 4: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor", "detalle": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

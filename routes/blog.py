@@ -1,6 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app
-from extensions import mysql, socketio
-from MySQLdb.cursors import DictCursor
+# ❌ Reemplazar: from extensions import mysql, socketio
+# ✅ Nueva importación:
+from extensions import socketio, get_db, close_db
+# ❌ Reemplazar: from MySQLdb.cursors import DictCursor
+# ✅ Nueva importación:
+import pymysql.cursors
 from werkzeug.utils import secure_filename
 import os
 import sys
@@ -23,9 +27,13 @@ def get_publicacion_con_imagenes_y_comentarios(publicacion_id):
     """
     Obtiene los detalles completos de una publicación, incluyendo imágenes y comentarios.
     """
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión usando get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor desde la conexión pymysql
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         publicacion_id = int(publicacion_id)
 
         print(f"DEBUG GET_PUB_DETAILS: Paso 1 - Obteniendo detalles básicos de la publicación {publicacion_id}", file=sys.stderr)
@@ -95,8 +103,11 @@ def get_publicacion_con_imagenes_y_comentarios(publicacion_id):
         traceback.print_exc(file=sys.stderr)
         return None
     finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 def extract_public_id_from_url(url: str) -> str:
     """
@@ -129,6 +140,7 @@ def crear_publicacion():
     if request.method == 'OPTIONS':
         return jsonify({'message': 'Preflight success'}), 200
 
+    conn = None
     cursor = None
     try:
         current_user_id = int(get_jwt_identity())
@@ -146,8 +158,12 @@ def crear_publicacion():
             return jsonify({"error": "Faltan campos obligatorios."}), 400
         if not image_file or not image_file.filename.strip():
             return jsonify({"error": "La imagen es obligatoria."}), 400
-
-        cursor = mysql.connection.cursor()
+        
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
+        
         # Primero insertamos la publicación
         cursor.execute(
             "INSERT INTO publicaciones (titulo, texto, categoria_id, autor_id) VALUES (%s, %s, %s, %s)",
@@ -163,7 +179,8 @@ def crear_publicacion():
         nueva_imagen_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
 
         if not nueva_imagen_url:
-            mysql.connection.rollback()
+            # ✅ CAMBIO 3: Usar conn.rollback()
+            conn.rollback()
             return jsonify({"error": "Error al subir la imagen."}), 500
 
         # Guardamos en DB
@@ -171,7 +188,8 @@ def crear_publicacion():
             "INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)",
             (publicacion_id, nueva_imagen_url)
         )
-        mysql.connection.commit()
+        # ✅ CAMBIO 4: Usar conn.commit()
+        conn.commit()
 
         return jsonify({
             "message": "Publicación creada exitosamente.",
@@ -181,12 +199,16 @@ def crear_publicacion():
 
     except Exception as e:
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 5: Usar conn.rollback() si la conexión está abierta (aunque pymysql maneja bien esto)
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno."}), 500
     finally:
+        # ✅ CAMBIO 6: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/eliminar-publicacion/<int:publicacion_id>', methods=['DELETE', 'OPTIONS'])
 @jwt_required()
@@ -203,9 +225,14 @@ def eliminar_publicacion(publicacion_id):
     if not claims.get('verificado'):
         return jsonify({"error": "Usuario no verificado."}), 403
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
         cursor.execute("SELECT autor_id FROM publicaciones WHERE id = %s", (publicacion_id,))
         resultado = cursor.fetchone()
         
@@ -244,7 +271,8 @@ def eliminar_publicacion(publicacion_id):
         cursor.execute("DELETE FROM imagenes_publicacion WHERE publicacion_id = %s", (publicacion_id,))
         cursor.execute("DELETE FROM likes WHERE publicacion_id = %s", (publicacion_id,))
         cursor.execute("DELETE FROM publicaciones WHERE id = %s", (publicacion_id,))
-        mysql.connection.commit()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
 
         # 🔥 Emitir evento a todos los clientes
         socketio.emit('publication_deleted', {
@@ -258,12 +286,16 @@ def eliminar_publicacion(publicacion_id):
     except Exception as e:
         print(f"Error al eliminar publicación {publicacion_id} para user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 4: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al eliminar publicación."}), 500
     finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/publicaciones', methods=['GET', 'OPTIONS'])
 def get_publicaciones():
@@ -271,9 +303,13 @@ def get_publicaciones():
         return jsonify({'message': 'Preflight success'}), 200
 
     categoria_id = request.args.get('categoria_id', type=int)
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         sql = """
             SELECT
@@ -303,7 +339,8 @@ def get_publicaciones():
             pub['autor_foto_perfil_url'] = pub['autor_foto_perfil_url'] if pub['autor_foto_perfil_url'] else None
 
             # Obtener imágenes principales
-            cursor_img = mysql.connection.cursor(DictCursor)
+            # ✅ CAMBIO 3: Crear un nuevo cursor desde conn
+            cursor_img = conn.cursor(pymysql.cursors.DictCursor)
             cursor_img.execute("SELECT id, url FROM imagenes_publicacion WHERE publicacion_id = %s ORDER BY id", (pub['id'],))
             imagenes = cursor_img.fetchall()
             cursor_img.close()
@@ -322,8 +359,11 @@ def get_publicaciones():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al obtener publicaciones."}), 500
     finally:
+        # ✅ CAMBIO 4: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 
 
@@ -343,9 +383,13 @@ def editar_publicacion(publicacion_id):
     categoria_id = request.form.get('categoria_id')
     image_file = request.files.get('imagen')
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("SELECT autor_id FROM publicaciones WHERE id = %s", (publicacion_id,))
         result = cursor.fetchone()
@@ -390,27 +434,39 @@ def editar_publicacion(publicacion_id):
             nueva_imagen_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
 
             if nueva_imagen_url:
-                cursor.execute(
+                # ✅ CAMBIO 3: Usar cursor de conn
+                cursor_update_img = conn.cursor()
+                cursor_update_img.execute(
                     "UPDATE imagenes_publicacion SET url = %s WHERE publicacion_id = %s AND orden = 1",
                     (nueva_imagen_url, publicacion_id)
                 )
+                cursor_update_img.close()
 
         if update_fields:
             update_values.append(publicacion_id)
             sql = f"UPDATE publicaciones SET {', '.join(update_fields)} WHERE id = %s"
-            cursor.execute(sql, tuple(update_values))
+            # ✅ CAMBIO 4: Usar cursor de conn
+            cursor_update_pub = conn.cursor()
+            cursor_update_pub.execute(sql, tuple(update_values))
+            cursor_update_pub.close()
+            
 
-        mysql.connection.commit()
+        # ✅ CAMBIO 5: Usar conn.commit()
+        conn.commit()
         return jsonify({"message": "Publicación actualizada exitosamente."}), 200
 
     except Exception as e:
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 6: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno al editar la publicación."}), 500
     finally:
+        # ✅ CAMBIO 7: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/comentar-publicacion', methods=['POST', 'OPTIONS'])
 @jwt_required()
@@ -438,9 +494,13 @@ def comentar_publicacion():
         print("ERROR COMENTAR: Datos incompletos - publicacion_id o comentario faltante.", file=sys.stderr)
         return jsonify({"error": "ID de publicación y comentario son requeridos."}), 400
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor()
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
         publicacion_id = int(publicacion_id)
 
         cursor.execute("SELECT id FROM publicaciones WHERE id = %s", (publicacion_id,))
@@ -452,11 +512,13 @@ def comentar_publicacion():
             "INSERT INTO comentarios (publicacion_id, autor_id, texto) VALUES (%s, %s, %s)",
             (publicacion_id, current_user_id, comentario_texto)
         )
-        mysql.connection.commit()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
         new_comment_id = cursor.lastrowid
         print(f"DEBUG COMENTAR: Comentario {new_comment_id} creado en publicación {publicacion_id} por user {current_user_id}.", file=sys.stderr)
 
-        comments_cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 4: Crear un nuevo cursor DictCursor para obtener el comentario
+        comments_cursor = conn.cursor(pymysql.cursors.DictCursor)
         comments_cursor.execute("""
             SELECT
                 c.id, c.publicacion_id, c.autor_id, c.texto, c.created_at, c.edited_at,
@@ -497,12 +559,16 @@ def comentar_publicacion():
     except Exception as e:
         print(f"Error al comentar publicación {publicacion_id} para user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 5: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al comentar."}), 500
     finally:
+        # ✅ CAMBIO 6: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/publicaciones/<int:publicacion_id>/comentarios', methods=['GET', 'OPTIONS'])
 def get_comentarios_publicacion(publicacion_id):
@@ -512,9 +578,13 @@ def get_comentarios_publicacion(publicacion_id):
 
     publicacion_id = int(publicacion_id)
     print(f"DEBUG GET_COMENTARIOS: Solicitud recibida para /publicaciones/{publicacion_id}/comentarios", file=sys.stderr)
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute("SELECT id FROM publicaciones WHERE id = %s", (publicacion_id,))
         publication_exists = cursor.fetchone()
@@ -560,8 +630,11 @@ def get_comentarios_publicacion(publicacion_id):
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al obtener comentarios."}), 500
     finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/editar-comentario/<int:comentario_id>', methods=['PUT', 'OPTIONS'])
 @jwt_required()
@@ -590,9 +663,14 @@ def editar_comentario(comentario_id):
         print(f"ERROR EDIT_COMMENT: Nuevo texto de comentario {comentario_id} requerido.", file=sys.stderr)
         return jsonify({"error": "Nuevo texto del comentario requerido."}), 400
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor()
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
+        
         cursor.execute("SELECT autor_id, publicacion_id FROM comentarios WHERE id = %s", (comentario_id,))
         resultado = cursor.fetchone()
         if not resultado:
@@ -610,11 +688,12 @@ def editar_comentario(comentario_id):
 
 
         cursor.execute("UPDATE comentarios SET texto = %s, edited_at = %s WHERE id = %s", (nuevo_texto, datetime.now(), comentario_id))
-        mysql.connection.commit()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
         print(f"DEBUG EDIT_COMMENT: Comentario {comentario_id} editado correctamente por usuario {current_user_id}.", file=sys.stderr)
 
-
-        comments_cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 4: Crear un nuevo cursor DictCursor para obtener el comentario
+        comments_cursor = conn.cursor(pymysql.cursors.DictCursor)
         comments_cursor.execute("""
             SELECT
                 c.id, c.publicacion_id, c.autor_id, c.texto, c.created_at, c.edited_at,
@@ -644,12 +723,16 @@ def editar_comentario(comentario_id):
     except Exception as e:
         print(f"Error al editar comentario {comentario_id} para user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 5: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al editar comentario."}), 500
     finally:
+        # ✅ CAMBIO 6: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/eliminar-comentario/<int:comentario_id>', methods=['DELETE', 'OPTIONS'])
 def eliminar_comentario(comentario_id):
@@ -669,9 +752,14 @@ def eliminar_comentario(comentario_id):
         print(f"DEBUG DELETE_COMMENT: Usuario {current_user_id} no verificado, acceso denegado.", file=sys.stderr)
         return jsonify({"error": "Usuario no verificado. Por favor, verifica tu correo electrónico."}), 403
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor()
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
+        
         cursor.execute("SELECT autor_id, publicacion_id FROM comentarios WHERE id = %s", (comentario_id,))
         resultado = cursor.fetchone()
         if not resultado:
@@ -693,7 +781,8 @@ def eliminar_comentario(comentario_id):
             return jsonify({"error": "No autorizado para eliminar este comentario."}), 403
 
         cursor.execute("DELETE FROM comentarios WHERE id = %s", (comentario_id,))
-        mysql.connection.commit()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
         print(f"DEBUG DELETE_COMMENT: Comentario {comentario_id} eliminado correctamente por usuario {current_user_id}.", file=sys.stderr)
 
         socketio.emit('comment_deleted', {'id': comentario_id, 'publicacion_id': publicacion_id}, room=f'publicacion_{publicacion_id}', namespace='/')
@@ -703,12 +792,16 @@ def eliminar_comentario(comentario_id):
     except Exception as e:
         print(f"Error al eliminar comentario {comentario_id} para user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 4: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al eliminar comentario."}), 500
     finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/publicaciones/<int:publicacion_id>/upload_imagen', methods=['POST'])
 @jwt_required()
@@ -727,22 +820,38 @@ def upload_publicacion_image(publicacion_id):
 
     allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
     if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+        
+        conn = None
+        cursor = None
         try:
             upload_result = upload_image_to_cloudinary(file, folder=f"publicaciones/{publicacion_id}")
             image_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
 
             if image_url:
-                cursor = mysql.connection.cursor()
+                # ✅ CAMBIO 1: Obtener la conexión
+                conn = get_db()
+                # ✅ CAMBIO 2: Crear el cursor
+                cursor = conn.cursor()
                 cursor.execute(
                     "INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)",
                     (publicacion_id, image_url)
                 )
-                mysql.connection.commit()
-                cursor.close()
+                # ✅ CAMBIO 3: Usar conn.commit()
+                conn.commit()
                 return jsonify({"message": "Imagen subida", "url": image_url}), 200
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
+            # ✅ CAMBIO 4: Usar conn.rollback()
+            if conn:
+                conn.rollback()
             return jsonify({"error": "Error al subir imagen"}), 500
+        finally:
+            # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
     return jsonify({"error": "Formato de archivo no permitido"}), 400
 
 
@@ -754,9 +863,13 @@ def get_categorias():
     if request.method == 'OPTIONS':
         return jsonify({'message': 'Preflight success'}), 200
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, nombre FROM categorias ORDER BY nombre ASC")
         categorias = cursor.fetchall()
         print(f"DEBUG: Devolviendo {len(categorias)} categorías.", file=sys.stderr)
@@ -772,8 +885,11 @@ def get_categorias():
         traceback.print_exc(file=sys.stderr)
         return jsonify({"error": "Error interno del servidor al obtener categorías."}), 500
     finally:
+        # ✅ CAMBIO 3: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/publicaciones/<int:publicacion_id>/like', methods=['POST', 'OPTIONS'])
 @jwt_required()
@@ -790,9 +906,13 @@ def like_publicacion(publicacion_id):
 
     print(f"DEBUG LIKES: Recibida solicitud LIKE para publicacion_id: {publicacion_id}", file=sys.stderr)
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor()
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
         
         cursor.execute("SELECT id FROM publicaciones WHERE id = %s", (publicacion_id,))
         if not cursor.fetchone():
@@ -805,7 +925,8 @@ def like_publicacion(publicacion_id):
         cursor.execute("INSERT INTO likes (publicacion_id, user_id) VALUES (%s, %s)", (publicacion_id, current_user_id))
         
         cursor.execute("UPDATE publicaciones SET likes_count = likes_count + 1 WHERE id = %s", (publicacion_id,))
-        mysql.connection.commit()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
 
         cursor.execute("SELECT likes_count FROM publicaciones WHERE id = %s", (publicacion_id,))
         new_likes_count = cursor.fetchone()[0]
@@ -817,12 +938,16 @@ def like_publicacion(publicacion_id):
     except Exception as e:
         print(f"ERROR LIKE: Fallo al añadir like a pub {publicacion_id} por user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 4: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al añadir 'me gusta'."}), 500
     finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 @blog_bp.route('/publicaciones/<int:publicacion_id>/unlike', methods=['DELETE', 'OPTIONS'])
 @jwt_required()
@@ -839,9 +964,13 @@ def unlike_publicacion(publicacion_id):
 
     print(f"DEBUG LIKES: Recibida solicitud UNLIKE para publicacion_id: {publicacion_id}", file=sys.stderr)
 
+    conn = None
     cursor = None
     try:
-        cursor = mysql.connection.cursor()
+        # ✅ CAMBIO 1: Obtener la conexión
+        conn = get_db()
+        # ✅ CAMBIO 2: Crear el cursor
+        cursor = conn.cursor()
         
         cursor.execute("SELECT id FROM publicaciones WHERE id = %s", (publicacion_id,))
         if not cursor.fetchone():
@@ -851,7 +980,8 @@ def unlike_publicacion(publicacion_id):
         
         if cursor.rowcount > 0:
             cursor.execute("UPDATE publicaciones SET likes_count = likes_count - 1 WHERE id = %s", (publicacion_id,))
-            mysql.connection.commit()
+            # ✅ CAMBIO 3: Usar conn.commit()
+            conn.commit()
 
             cursor.execute("SELECT likes_count FROM publicaciones WHERE id = %s", (publicacion_id,))
             new_likes_count = cursor.fetchone()[0]
@@ -865,9 +995,13 @@ def unlike_publicacion(publicacion_id):
     except Exception as e:
         print(f"ERROR UNLIKE: Fallo al eliminar like de pub {publicacion_id} por user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        if mysql.connection.open:
-            mysql.connection.rollback()
+        # ✅ CAMBIO 4: Usar conn.rollback()
+        if conn:
+            conn.rollback()
         return jsonify({"error": "Error interno del servidor al eliminar 'me gusta'."}), 500
     finally:
+        # ✅ CAMBIO 5: Asegurar el cierre de la conexión (y cursor)
         if cursor:
             cursor.close()
+        if conn:
+            conn.close()

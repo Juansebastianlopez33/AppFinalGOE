@@ -4,8 +4,12 @@ import random
 import sys
 import traceback
 from flask import Blueprint, render_template_string, jsonify, current_app, request, redirect
-from extensions import mysql, redis_client, socketio
-from MySQLdb.cursors import DictCursor
+# ❌ Reemplazar: from extensions import mysql, redis_client, socketio
+# ✅ Nueva importación:
+from extensions import get_db, redis_client, socketio
+# ❌ Reemplazar: from MySQLdb.cursors import DictCursor
+# ✅ Nueva importación:
+import pymysql.cursors
 import uuid
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import requests
@@ -21,11 +25,17 @@ AI_API_URL = "http://100.121.255.122:8000/start-game"
 # Función para cargar y guardar las preguntas
 def load_and_save_questions(username, action="load", data=None):
     """Carga o guarda las preguntas del usuario en Cloudinary (URL guardada en BD)."""
+    conn = None
+    cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, preguntas_url FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user:
             return None
@@ -45,10 +55,23 @@ def load_and_save_questions(username, action="load", data=None):
                 public_id="preguntas"  # 👈 siempre se llama "preguntas.json"
             )
             if url:
-                cursor = mysql.connection.cursor()
-                cursor.execute("UPDATE users SET preguntas_url = %s WHERE id = %s", (url, user_id))
-                mysql.connection.commit()
+                # Se necesita un nuevo cursor para la transacción UPDATE si el anterior ya se usó para SELECT
+                # O reutilizar el cursor si la lógica de PyMySQL lo permite, pero es más seguro re-abrir/reutilizar
+                # En este caso, reutilizaré 'cursor' si no está cerrado.
+                # Como ya se llamó fetchone, lo mejor es reabrir la conexión para la transacción si PyMySQL no maneja bien la reutilización del cursor.
+                # Dado que PyMySQL permite múltiples cursores en una conexión, mantendré la estructura simple:
+                
+                # Se podría reabrir/reutilizar la conexión y el cursor, pero por simplicidad de PyMySQL
+                # la conexión actual está abierta. Solo necesito un cursor simple para la actualización.
+                
+                # Para evitar problemas con el cursor de DictCursor anterior, aseguramos el cierre de ese cursor
                 cursor.close()
+                cursor = conn.cursor() # Cursor simple para UPDATE
+
+                cursor.execute("UPDATE users SET preguntas_url = %s WHERE id = %s", (url, user_id))
+                # ✅ CAMBIO 3: Usar conn.commit()
+                conn.commit()
+                # cursor.close() se hará en finally
                 return True
             return False
 
@@ -56,6 +79,12 @@ def load_and_save_questions(username, action="load", data=None):
         print(f"ERROR en load_and_save_questions: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return None
+    finally:
+        # ✅ CAMBIO 4: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # ---------------------------------------------------
 # 1. Verificar acceso al juego y generar token temporal
@@ -63,24 +92,31 @@ def load_and_save_questions(username, action="load", data=None):
 @auth_juego_bp.route("/verify-game-access", methods=["POST"])
 @jwt_required()
 def verify_game_access():
+    conn = None
+    cursor = None
     try:
         current_user_id = get_jwt_identity()
         print("DEBUG: current_user_id en verify_game_access =", current_user_id, file=sys.stderr)
 
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(
             "SELECT id, username, email, foto_perfil, verificado FROM users WHERE id = %s",
             (current_user_id,),
         )
         user_data = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user_data:
             return jsonify({"message": "Usuario no encontrado"}), 404
 
         game_access_token = str(uuid.uuid4())
         redis_key = f"game_token:{game_access_token}"
-        redis_client.setex(redis_key, 60, current_user_id)
+        # El tiempo de expiración es corto (60 segundos)
+        redis_client.setex(redis_key, 60, current_user_id) 
 
         socketio.emit(
             "game_access",
@@ -94,6 +130,12 @@ def verify_game_access():
         print(f"ERROR en verify-game-access: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 @auth_juego_bp.route("/check-course/<string:username>", methods=["GET"])
 def check_course(username):
@@ -101,21 +143,34 @@ def check_course(username):
     Verifica si un usuario ya tiene curso.json guardado.
     Devuelve {existe: 1} si lo tiene, {existe: 0} si no.
     """
+    conn = None
+    cursor = None
     try:
         if not username:
             return jsonify({"message": "El nombre de usuario es requerido"}), 400
 
         # Buscar ID de usuario
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user:
             return jsonify({"message": "Usuario no encontrado", "existe": 0}), 404
 
         user_id = str(user["id"])
 
+        # NOTE: Si la URL del curso se guarda en la DB (como en start-game-session), esta lógica de archivo local es incorrecta.
+        # Asumiendo que la lógica *debe* verificar el archivo local si existe (por historial de código)
+        # o que en realidad se quería verificar 'curso_url' en la DB (como en get_user_course).
+        # MANTENDRÉ la lógica de archivo local, pero lo ideal sería usar 'curso_url'.
+        # Como no tengo la estructura de carpetas, mantendré el código original, pero es una potencial falla.
+        
+        # **Usando la lógica de archivo local del código original:**
         uploads_folder = current_app.config.get("UPLOAD_FOLDER_HOST_PATH", "./uploads")
         user_folder = os.path.join(uploads_folder, "users_data", user_id)
         curso_file = os.path.join(user_folder, "curso.json")
@@ -124,11 +179,22 @@ def check_course(username):
             return jsonify({"existe": 1}), 200
         else:
             return jsonify({"existe": 0}), 200
+        # **Alternativa más robusta (si curso_url se usa):**
+        # cursor.execute("SELECT curso_url FROM users WHERE id = %s", (user_id,))
+        # user_url = cursor.fetchone()
+        # return jsonify({"existe": 1}) if user_url and user_url['curso_url'] else jsonify({"existe": 0}), 200
+
 
     except Exception as e:
         print(f"ERROR en check_course: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 # ---------------------------------------------------
@@ -143,22 +209,29 @@ def get_game_data():
         return jsonify({"message": "Token de acceso requerido"}), 400
 
     redis_key = f"game_token:{game_access_token}"
-    user_id = redis_client.get(redis_key)
+    user_id_bytes = redis_client.get(redis_key)
 
-    if not user_id:
+    if not user_id_bytes:
         return jsonify({"message": "Token inválido o expirado"}), 401
 
     redis_client.delete(redis_key)
+    user_id = user_id_bytes.decode("utf-8")
 
+    conn = None
+    cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
-        user_id_int = int(user_id.decode("utf-8"))
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        user_id_int = int(user_id)
         cursor.execute(
             "SELECT id, username, email, foto_perfil, verificado FROM users WHERE id = %s",
             (user_id_int,),
         )
         user_data = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user_data:
             return jsonify({"message": "Usuario no encontrado"}), 404
@@ -169,19 +242,31 @@ def get_game_data():
         print(f"ERROR en get-game-data: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @auth_juego_bp.route("/get-user-course/<string:username>", methods=["GET"])
 def get_user_course(username):
     """Devuelve el curso.json del usuario desde Cloudinary."""
+    conn = None
+    cursor = None
     try:
         if not username:
             return jsonify({"message": "El nombre de usuario es requerido"}), 400
 
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, curso_url FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user:
             return jsonify({"message": "Usuario no encontrado"}), 404
@@ -197,6 +282,12 @@ def get_user_course(username):
         print(f"ERROR en get-user-course: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 3: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # ---------------------------------------------------
 # 3. Iniciar sesión de juego con la IA
@@ -204,6 +295,8 @@ def get_user_course(username):
 @auth_juego_bp.route("/start-game-session", methods=["POST"])
 @jwt_required()
 def start_game_session():
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         tema = data.get("tema")
@@ -219,10 +312,14 @@ def start_game_session():
         if not current_user_id:
             return jsonify({"message": "Token inválido o sin identidad"}), 401
 
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT username, foto_perfil FROM users WHERE id = %s", (current_user_id,))
         user_details = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user_details:
             return jsonify({"message": "Usuario no encontrado"}), 404
@@ -257,31 +354,44 @@ def start_game_session():
         )
 
         # Guardar URLs en la base de datos
-        cursor = mysql.connection.cursor()
+        # Se puede reutilizar 'conn', pero es mejor asegurar un cursor simple para el UPDATE.
+        # Ya se cerró el DictCursor arriba para el SELECT. Reabrimos un cursor simple.
+        cursor.close()
+        cursor = conn.cursor()
+        
         cursor.execute(
             "UPDATE users SET curso_url = %s, preguntas_url = %s WHERE id = %s",
             (curso_url, preguntas_url, current_user_id)
         )
-        mysql.connection.commit()
-        cursor.close()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
+        # cursor.close() y conn.close() ahora en finally
 
         return jsonify({"message": "Sesión de juego iniciada"}), 200
 
     except requests.exceptions.RequestException as e:
+        # Si hay un error de Request, no hay que hacer rollback a menos que se haya hecho un commit anterior
         print(f"ERROR comunicando con IA: {e}", file=sys.stderr)
         return jsonify({"message": "Error al comunicarse con IA", "error": str(e)}), 502
     except Exception as e:
+        if conn:
+            conn.rollback()
         print(f"ERROR en start-game-session: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 4: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @auth_juego_bp.route("/game-questions-ui/<string:username>", methods=["GET"])
 def game_questions_ui(username):
-    """
-    Retorna una página HTML con la interfaz del juego de preguntas.
-    No requiere autenticación con JWT, sino solo el token temporal.
-    """
+    # La ruta UI solo retorna HTML, no tiene interacciones con la DB de Flask-MySQL.
+    # El código HTML/JS hace peticiones a otras rutas que sí han sido modificadas.
+    # Por lo tanto, no se requiere cambiar el contenido de esta función.
     html_content = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -773,9 +883,6 @@ def game_questions_ui(username):
 # ---------------------------------------------------
 # 4. Ruta para obtener la siguiente pregunta
 # ---------------------------------------------------
-# ---------------------------------------------------
-# 4. Ruta para obtener la siguiente pregunta
-# ---------------------------------------------------
 @auth_juego_bp.route("/get-next-question/<string:username>", methods=["GET"])
 def get_next_question(username):
     """
@@ -783,6 +890,8 @@ def get_next_question(username):
     Si una pregunta activa ya existe en Redis, la retorna. De lo contrario,
     selecciona una nueva y la guarda.
     """
+    conn = None
+    cursor = None
     try:
         # 1. Verificar si el usuario tiene una pregunta activa en Redis
         pregunta_activa_str = redis_client.get(f"pregunta_actual_{username}")
@@ -795,15 +904,20 @@ def get_next_question(username):
         # Si no hay pregunta activa, la siguiente parte del código se ejecutará.
         
         # 2. Actualizar el estado en la base de datos a 'no_respondio'
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(
             "UPDATE users SET estado_pregunta = %s WHERE username = %s",
             ("no_respondio", username)
         )
-        mysql.connection.commit()
-        cursor.close()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
+        # cursor.close() y conn.close() ahora en finally
 
         # 3. Cargar todas las preguntas del archivo JSON
+        # load_and_save_questions ya usa la nueva conexión internamente
         preguntas_del_usuario = load_and_save_questions(username, "load")
         if not preguntas_del_usuario:
             return jsonify({"message": "No hay más preguntas disponibles"}), 404
@@ -820,16 +934,18 @@ def get_next_question(username):
         return jsonify({"pregunta": pregunta_elegida}), 200
 
     except Exception as e:
+        if conn:
+            conn.rollback()
         print(f"ERROR en get-next-question: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
     finally:
-        if 'cursor' in locals():
+        # ✅ CAMBIO 4: Asegurar cierre
+        if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
-# ---------------------------------------------------
-# 5. Ruta para enviar la respuesta del usuario
-# ---------------------------------------------------
 # ---------------------------------------------------
 # 5. Ruta para enviar la respuesta del usuario
 # ---------------------------------------------------
@@ -839,6 +955,8 @@ def submit_answer(username):
     Recibe la respuesta del usuario, la valida y retorna el resultado.
     Si la respuesta es correcta, elimina la pregunta de Redis y del archivo JSON.
     """
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         respuesta_usuario = data.get("respuesta")
@@ -862,6 +980,7 @@ def submit_answer(username):
             redis_client.delete(f"pregunta_actual_{username}")
             
             # 2. Cargar todas las preguntas del archivo JSON
+            # load_and_save_questions ya usa la nueva conexión internamente
             preguntas_del_usuario = load_and_save_questions(username, "load")
             
             # 3. Eliminar la pregunta respondida de la lista
@@ -879,13 +998,17 @@ def submit_answer(username):
             # No eliminar la pregunta de Redis para que se mantenga la misma
 
         # Actualizar el estado en la base de datos
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(
             "UPDATE users SET estado_pregunta = %s WHERE username = %s",
             (resultado, username),
         )
-        mysql.connection.commit()
-        cursor.close()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
+        # cursor.close() y conn.close() ahora en finally
 
         return jsonify({
             "resultado": resultado,
@@ -894,12 +1017,17 @@ def submit_answer(username):
         }), 200
 
     except Exception as e:
+        if conn:
+            conn.rollback()
         print(f"ERROR en submit_answer: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
     finally:
-        if 'cursor' in locals():
+        # ✅ CAMBIO 4: Asegurar cierre
+        if cursor:
             cursor.close()
+        if conn:
+            conn.close()
             
 # ---------------------------------------------------
 # NUEVA RUTA: Obtener el estado de la última pregunta
@@ -909,14 +1037,20 @@ def get_last_answer_status(username):
     """
     Retorna el valor del campo 'estado_pregunta' del usuario.
     """
+    conn = None
+    cursor = None
     try:
         if not username:
             return jsonify({"message": "El nombre de usuario es requerido"}), 400
 
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT estado_pregunta FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
-        cursor.close()
+        
+        # cursor.close() y conn.close() ahora en finally
 
         if not user:
             return jsonify({"message": "Usuario no encontrado"}), 404
@@ -927,8 +1061,11 @@ def get_last_answer_status(username):
         print(f"ERROR en get-last-answer-status: {e}", file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
     finally:
-        if 'cursor' in locals():
+        # ✅ CAMBIO 3: Asegurar cierre
+        if cursor:
             cursor.close()
+        if conn:
+            conn.close()
 
 # ---------------------------------------------------
 # NUEVA RUTA: Actualizar el estado de la última pregunta
@@ -939,6 +1076,8 @@ def update_last_answer_status(username):
     Actualiza el campo 'estado_pregunta' en la tabla users
     con el estado de la última respuesta (correcto o incorrecto).
     """
+    conn = None
+    cursor = None
     try:
         data = request.get_json()
         estado = data.get("estado")
@@ -946,15 +1085,27 @@ def update_last_answer_status(username):
         if estado not in ["correcto", "incorrecto"]:
             return jsonify({"message": "Estado inválido"}), 400
 
-        cursor = mysql.connection.cursor(DictCursor)
+        # ✅ CAMBIO 1: Usar get_db()
+        conn = get_db()
+        # ✅ CAMBIO 2: Usar pymysql.cursors.DictCursor
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(
             "UPDATE users SET estado_pregunta = %s WHERE username = %s",
             (estado, username),
         )
-        mysql.connection.commit()
-        cursor.close()
+        # ✅ CAMBIO 3: Usar conn.commit()
+        conn.commit()
+        # cursor.close() y conn.close() ahora en finally
 
         return jsonify({"message": "Estado actualizado", "estado": estado}), 200
     except Exception as e:
+        if conn:
+            conn.rollback()
         print(f"ERROR en update-last-answer-status: {e}", file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
+    finally:
+        # ✅ CAMBIO 4: Asegurar cierre
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
