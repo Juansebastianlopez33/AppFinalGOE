@@ -10,6 +10,7 @@ import uuid
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import requests
 from slugify import slugify
+from utils import upload_json_to_cloudinary, download_json_from_cloudinary
 
 # Blueprint para rutas del juego
 auth_juego_bp = Blueprint("auth_juego", __name__)
@@ -19,10 +20,10 @@ AI_API_URL = "http://100.121.255.122:8000/start-game"
 
 # Función para cargar y guardar las preguntas
 def load_and_save_questions(username, action="load", data=None):
-    """Carga o guarda las preguntas del archivo JSON de un usuario."""
+    """Carga o guarda las preguntas del usuario en Cloudinary (URL guardada en BD)."""
     try:
         cursor = mysql.connection.cursor(DictCursor)
-        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT id, preguntas_url FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
         cursor.close()
 
@@ -30,20 +31,27 @@ def load_and_save_questions(username, action="load", data=None):
             return None
 
         user_id = str(user["id"])
-        uploads_folder = current_app.config.get("UPLOAD_FOLDER_HOST_PATH", "./uploads")
-        user_folder = os.path.join(uploads_folder, "users_data", user_id)
-        questions_file = os.path.join(user_folder, "preguntas.json")
 
         if action == "load":
-            if not os.path.exists(questions_file):
+            preguntas_url = user.get("preguntas_url")
+            if not preguntas_url:
                 return []
-            with open(questions_file, "r", encoding="utf-8") as file:
-                return json.load(file)
+            return download_json_from_cloudinary(preguntas_url)
+
         elif action == "save" and data is not None:
-            os.makedirs(user_folder, exist_ok=True)
-            with open(questions_file, "w", encoding="utf-8") as file:
-                json.dump(data, file, indent=4, ensure_ascii=False)
-            return True
+            url = upload_json_to_cloudinary(
+                data,
+                folder=f"cursosUsuarios/{user_id}",
+                public_id="preguntas"  # 👈 siempre se llama "preguntas.json"
+            )
+            if url:
+                cursor = mysql.connection.cursor()
+                cursor.execute("UPDATE users SET preguntas_url = %s WHERE id = %s", (url, user_id))
+                mysql.connection.commit()
+                cursor.close()
+                return True
+            return False
+
     except Exception as e:
         print(f"ERROR en load_and_save_questions: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -165,37 +173,23 @@ def get_game_data():
 
 @auth_juego_bp.route("/get-user-course/<string:username>", methods=["GET"])
 def get_user_course(username):
-    """
-    Devuelve el curso.json que pertenece a un usuario,
-    usando el nombre de usuario pasado en la URL.
-    Ejemplo: GET /auth_juego/get-user-course/thebos135
-    """
+    """Devuelve el curso.json del usuario desde Cloudinary."""
     try:
         if not username:
             return jsonify({"message": "El nombre de usuario es requerido"}), 400
 
-        # 1. Buscar el ID del usuario en la BD
         cursor = mysql.connection.cursor(DictCursor)
-        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT id, curso_url FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
         cursor.close()
 
         if not user:
             return jsonify({"message": "Usuario no encontrado"}), 404
 
-        user_id = str(user["id"])
-
-        # 2. Armar ruta al curso.json
-        uploads_folder = current_app.config.get("UPLOAD_FOLDER_HOST_PATH", "./uploads")
-        user_folder = os.path.join(uploads_folder, "users_data", user_id)
-        curso_file = os.path.join(user_folder, "curso.json")
-
-        if not os.path.exists(curso_file):
+        if not user["curso_url"]:
             return jsonify({"message": "El usuario no tiene curso asignado"}), 404
 
-        # 3. Leer y devolver curso.json
-        with open(curso_file, "r", encoding="utf-8") as f:
-            curso_data = json.load(f)
+        curso_data = download_json_from_cloudinary(user["curso_url"])
 
         return jsonify({"usuario": username, "curso": curso_data}), 200
 
@@ -203,7 +197,6 @@ def get_user_course(username):
         print(f"ERROR en get-user-course: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return jsonify({"message": "Error interno del servidor", "error": str(e)}), 500
-
 
 # ---------------------------------------------------
 # 3. Iniciar sesión de juego con la IA
@@ -213,8 +206,6 @@ def get_user_course(username):
 def start_game_session():
     try:
         data = request.get_json()
-        print("DEBUG: Datos recibidos del frontend:", data, file=sys.stderr)
-
         tema = data.get("tema")
         dificultad = data.get("dificultad")
         curso = data.get("curso")
@@ -223,18 +214,13 @@ def start_game_session():
             return jsonify({"message": "Faltan datos de configuración"}), 400
 
         curso_slug = slugify(curso, lowercase=True)
-
         current_user_id = get_jwt_identity()
-        print("DEBUG: current_user_id en start_game_session =", current_user_id, file=sys.stderr)
 
         if not current_user_id:
             return jsonify({"message": "Token inválido o sin identidad"}), 401
 
         cursor = mysql.connection.cursor(DictCursor)
-        cursor.execute(
-            "SELECT username, foto_perfil FROM users WHERE id = %s",
-            (current_user_id,),
-        )
+        cursor.execute("SELECT username, foto_perfil FROM users WHERE id = %s", (current_user_id,))
         user_details = cursor.fetchone()
         cursor.close()
 
@@ -248,26 +234,36 @@ def start_game_session():
             "dificultad": dificultad,
             "curso": curso_slug,
         }
-        print("DEBUG: Payload enviado a la IA:", payload_ia, file=sys.stderr)
         response_ia = requests.post(AI_API_URL, json=payload_ia)
-        print("DEBUG: Respuesta de la IA (status):", response_ia.status_code, file=sys.stderr)
-        print("DEBUG: Respuesta de la IA (texto):", response_ia.text, file=sys.stderr)
         response_ia.raise_for_status()
         game_data = response_ia.json()
+
         curso_data = game_data.get("curso_data")
         preguntas_data = game_data.get("preguntas")
 
         if not curso_data or not preguntas_data:
             return jsonify({"message": "Respuesta de la IA incompleta"}), 500
 
-        uploads_folder = current_app.config.get("UPLOAD_FOLDER_HOST_PATH", "./uploads")
-        user_folder = os.path.join(uploads_folder, "users_data", str(current_user_id))
-        os.makedirs(user_folder, exist_ok=True)
-        with open(os.path.join(user_folder, "curso.json"), "w", encoding="utf-8") as f:
-            json.dump(curso_data, f, indent=4, ensure_ascii=False)
-        with open(os.path.join(user_folder, "preguntas.json"), "w", encoding="utf-8") as f:
-            json.dump(preguntas_data, f, indent=4, ensure_ascii=False)
-        print("DEBUG: Archivos guardados en:", user_folder, file=sys.stderr)
+        # 🚀 Guardar en Cloudinary con la carpeta cursosUsuarios/<id>
+        curso_url = upload_json_to_cloudinary(
+            curso_data,
+            folder=f"cursosUsuarios/{current_user_id}",
+            public_id="curso"
+        )
+        preguntas_url = upload_json_to_cloudinary(
+            preguntas_data,
+            folder=f"cursosUsuarios/{current_user_id}",
+            public_id="preguntas"
+        )
+
+        # Guardar URLs en la base de datos
+        cursor = mysql.connection.cursor()
+        cursor.execute(
+            "UPDATE users SET curso_url = %s, preguntas_url = %s WHERE id = %s",
+            (curso_url, preguntas_url, current_user_id)
+        )
+        mysql.connection.commit()
+        cursor.close()
 
         return jsonify({"message": "Sesión de juego iniciada"}), 200
 

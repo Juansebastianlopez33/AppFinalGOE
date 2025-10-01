@@ -7,6 +7,11 @@ import sys
 import traceback
 from datetime import datetime
 import shutil
+import cloudinary.uploader
+import re
+
+# ✅ Import directo desde la raíz
+from utils import upload_image_to_cloudinary
 
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required, verify_jwt_in_request
 
@@ -93,276 +98,92 @@ def get_publicacion_con_imagenes_y_comentarios(publicacion_id):
         if cursor:
             cursor.close()
 
-@blog_bp.route('/publicaciones', methods=['GET', 'OPTIONS'])
-def publicaciones():
-    if request.method == 'OPTIONS':
-        return jsonify({'message': 'Preflight success'}), 200
+def extract_public_id_from_url(url: str) -> str:
+    """
+    Extrae el public_id de una URL de Cloudinary.
+    Ejemplo:
+        https://res.cloudinary.com/demo/image/upload/v1234567/publicaciones/5/10/imagen.jpg
+    Retorna:
+        publicaciones/5/10/imagen  (sin la extensión .jpg)
+    """
+    if not url:
+        return None
 
-    cursor = None
     try:
-        cursor = mysql.connection.cursor(DictCursor)
-        categoria_id_param = request.args.get('categoria_id')
-        sql_query = "SELECT p.id FROM publicaciones p"
-        query_params = []
-
-        if categoria_id_param:
-            try:
-                categoria_id = int(categoria_id_param)
-                sql_query += " WHERE p.categoria_id = %s"
-                query_params.append(categoria_id)
-            except ValueError:
-                print(f"ERROR PUBLICACIONES GET: ID de categoría inválido: {categoria_id_param}", file=sys.stderr)
-                return jsonify({"error": "ID de categoría inválido."}), 400
-        
-        sql_query += " ORDER BY p.created_at DESC"
-        
-        cursor.execute(sql_query, tuple(query_params))
-        publicacion_ids_raw = cursor.fetchall()
-        
-        publicaciones_con_detalles = []
-        for row in publicacion_ids_raw:
-            full_publicacion = get_publicacion_con_imagenes_y_comentarios(row['id'])
-            if full_publicacion:
-                publicaciones_con_detalles.append(full_publicacion)
-
-        print(f"DEBUG PUBLICACIONES GET: Devolviendo {len(publicaciones_con_detalles)} publicaciones (filtradas por categoria_id: {categoria_id_param}).", file=sys.stderr)
-        return jsonify(publicaciones_con_detalles), 200
+        # Quita los parámetros después del ?
+        url = url.split("?")[0]
+        # Quita la extensión (jpg, png, etc.)
+        url_no_ext = re.sub(r"\.[a-zA-Z0-9]+$", "", url)
+        # Busca la parte después de /upload/
+        match = re.search(r"/upload/(?:v\d+/)?(.+)", url_no_ext)
+        if match:
+            return match.group(1)
     except Exception as e:
-        print(f"Error en /publicaciones: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        return jsonify({"error": "Error interno del servidor al obtener publicaciones."}), 500
-    finally:
-        if cursor:
-            cursor.close()
+        print(f"Error extrayendo public_id de URL {url}: {e}", file=sys.stderr)
+
+    return None
 
 @blog_bp.route('/crear-publicacion', methods=['POST', 'OPTIONS'])
 @jwt_required()
 def crear_publicacion():
-    try:
-        if request.method == 'OPTIONS':
-            return jsonify({'message': 'Preflight success'}), 200
-
-        current_user_id = int(get_jwt_identity())
-        claims = get_jwt()
-        
-        print(f"DEBUG CREAR: current_user_id del JWT: {current_user_id}", file=sys.stderr)
-        print(f"DEBUG CREAR: claims del JWT: {claims}", file=sys.stderr)
-
-        if not claims.get('verificado'):
-            print(f"DEBUG CREAR: Usuario {current_user_id} no verificado, acceso denegado.", file=sys.stderr)
-            return jsonify({"error": "Usuario no verificado. Por favor, verifica tu correo electrónico."}), 403
-
-        user_in_db = get_user_details(current_user_id)
-        if not user_in_db or not user_in_db.get('verificado'):
-            print(f"ERROR CREAR: Usuario con ID {current_user_id} no encontrado o no verificado en la base de datos.", file=sys.stderr)
-            return jsonify({"error": "No autorizado: El usuario asociado al token no existe o no está verificado."}), 404
-        
-        print(f"DEBUG CREAR: Headers de la solicitud: {request.headers}", file=sys.stderr)
-        print(f"DEBUG CREAR: Content-Type: {request.headers.get('Content-Type')}", file=sys.stderr)
-        print(f"DEBUG CREAR: Es JSON? {request.is_json}", file=sys.stderr)
-        print(f"DEBUG CREAR: Archivos en request.files: {request.files}", file=sys.stderr)
-        print(f"DEBUG CREAR: Datos de formulario en request.form: {request.form}", file=sys.stderr)
-        print(f"DEBUG CREAR: Raw Request Data (primeros 200 bytes): {request.get_data()[:200]}", file=sys.stderr)
-
-        titulo = None
-        texto = None
-        categoria_id = None
-        image_file = None
-        
-        if request.is_json:
-            data = request.json
-            titulo = data.get('titulo')
-            texto = data.get('texto')
-            categoria_id = data.get('categoria_id')
-            print(f"DEBUG CREAR: Contenido completo de request.json: {data}", file=sys.stderr)
-        elif request.form or request.files:
-            titulo = request.form.get('titulo')
-            texto = request.form.get('texto')
-            categoria_id = request.form.get('categoria_id')
-            # 👇 Corrección: frontend envía "imagen", no "imageFile"
-            image_file = request.files.get('imagen') or request.files.get('imageFile')
-            print(f"DEBUG CREAR: Contenido de formulario: titulo='{titulo}', texto='{texto[:50] if texto else 'None'}...', categoria_id='{categoria_id}', image_file: {image_file.filename if image_file else 'None'}", file=sys.stderr)
-        else:
-            print(f"ERROR CREAR: No se detectó cuerpo JSON ni datos de formulario/archivos.", file=sys.stderr)
-            return jsonify({"error": "Formato de solicitud no soportado o cuerpo vacío."}), 400
-
-        if categoria_id is not None:
-            try:
-                categoria_id = int(categoria_id)
-            except ValueError:
-                print(f"ERROR CREAR: categoria_id '{categoria_id}' no es un entero válido.", file=sys.stderr)
-                return jsonify({"error": "El ID de categoría proporcionado no es válido."}), 400
-
-        if not titulo or not texto or categoria_id is None:
-            missing_fields = []
-            if not titulo: missing_fields.append("titulo")
-            if not texto: missing_fields.append("texto") 
-            if categoria_id is None: missing_fields.append("categoria_id")
-            print(f"ERROR CREAR: Datos incompletos - Faltan campos: {', '.join(missing_fields)}.", file=sys.stderr)
-            return jsonify({"error": "Título, texto y categoría de la publicación son requeridos."}), 400
-        
-        cursor = None
-        try:
-            cursor = mysql.connection.cursor()
-
-            cursor.execute("SELECT id FROM categorias WHERE id = %s", (categoria_id,))
-            if not cursor.fetchone():
-                print(f"ERROR CREAR: Categoría ID {categoria_id} no existe.", file=sys.stderr)
-                return jsonify({"error": "La categoría seleccionada no existe."}), 400
-
-            cursor.execute("INSERT INTO publicaciones (autor_id, titulo, texto, categoria_id) VALUES (%s, %s, %s, %s)",
-                        (current_user_id, titulo, texto, categoria_id))
-            mysql.connection.commit()
-
-            new_post_id = cursor.lastrowid
-            print(f"DEBUG CREAR: Publicación {new_post_id} creada por usuario {current_user_id}.", file=sys.stderr)
-
-            if image_file:
-                print(f"DEBUG CREAR: Manejando subida de imagen para publicación {new_post_id}.", file=sys.stderr)
-                allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
-                
-                if image_file.filename == '' or not ('.' in image_file.filename and image_file.filename.rsplit('.', 1)[1].lower() in allowed_extensions):
-                    print(f"ERROR CREAR: Tipo de archivo de imagen no permitido o nombre de archivo inválido: {image_file.filename}", file=sys.stderr)
-                else:
-                    file_extension = image_file.filename.rsplit('.', 1)[1].lower()
-                    upload_folder = current_app.config.get('UPLOAD_FOLDER')
-                    if not upload_folder:
-                        print("ERROR: UPLOAD_FOLDER no está configurado en app.config.", file=sys.stderr)
-                    else:
-                        base_publicaciones_path = os.path.join(upload_folder, 'publicaciones')
-                        publicacion_folder_path = os.path.join(base_publicaciones_path, str(new_post_id))
-                        if not os.path.exists(publicacion_folder_path):
-                            os.makedirs(publicacion_folder_path)
-
-                        new_filename = secure_filename(image_file.filename)
-                        filepath = os.path.join(publicacion_folder_path, new_filename)
-
-                        try:
-                            image_file.save(filepath)
-                            base_url = current_app.config.get('API_BASE_URL', request.url_root.rstrip('/'))
-                            image_url_db = f"{base_url}/uploads/publicaciones/{new_post_id}/{new_filename}"
-                            
-                            cursor.execute("UPDATE publicaciones SET imageUrl = %s WHERE id = %s", (image_url_db, new_post_id))
-                            cursor.execute("INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)", (new_post_id, image_url_db))
-                            mysql.connection.commit()
-                            print(f"DEBUG CREAR: Imagen principal guardada y asociada a pub {new_post_id}: {image_url_db}", file=sys.stderr)
-
-                        except Exception as img_e:
-                            print(f"ERROR CREAR: Fallo al guardar imagen para publicación {new_post_id}: {img_e}", file=sys.stderr)
-                            traceback.print_exc(file=sys.stderr)
-            
-            nueva_publicacion_con_detalles = get_publicacion_con_imagenes_y_comentarios(new_post_id)
-
-            if nueva_publicacion_con_detalles:
-                if hasattr(current_app, 'add_to_publication_batch'):
-                    current_app.add_to_publication_batch(nueva_publicacion_con_detalles)
-                else:
-                    socketio.emit('publication_added_instant', nueva_publicacion_con_detalles, broadcast=True, namespace='/')
-                print(f"DEBUG CREAR: Evento 'publication_added' emitido para pub {new_post_id}.", file=sys.stderr)
-
-            return jsonify({"message": "Publicación creada exitosamente.", "publicacion_id": new_post_id}), 201
-        except Exception as e:
-            print(f"Error al crear publicación para user {current_user_id}: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
-            if mysql.connection.open:
-                mysql.connection.rollback()
-            return jsonify({"error": "Error interno del servidor al crear la publicación."}), 500
-    except Exception as e:
-        print(f"FATAL ERROR CREAR: Excepción inesperada en crear_publicacion: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        if 'mysql' in globals() and mysql.connection.open:
-            mysql.connection.rollback()
-        return jsonify({"error": "Error interno del servidor al procesar la solicitud de creación de publicación. Por favor, intenta de nuevo."}), 500
-
-@blog_bp.route('/editar-publicacion/<int:publicacion_id>', methods=['PUT', 'OPTIONS'])
-@jwt_required()
-def editar_publicacion(publicacion_id):
     if request.method == 'OPTIONS':
         return jsonify({'message': 'Preflight success'}), 200
 
-    current_user_id = int(get_jwt_identity())
-    claims = get_jwt()
-
-    if not claims.get('verificado'):
-        return jsonify({"error": "Usuario no verificado."}), 403
-
-    nuevo_titulo = request.form.get('titulo')
-    nuevo_texto = request.form.get('texto')
-    nueva_categoria = request.form.get('categoria_id')
-
-    if not nuevo_titulo or not nuevo_texto:
-        return jsonify({"error": "Título y texto son requeridos."}), 400
-
     cursor = None
     try:
+        current_user_id = int(get_jwt_identity())
+        claims = get_jwt()
+
+        if not claims.get('verificado'):
+            return jsonify({"error": "Usuario no verificado."}), 403
+
+        titulo = request.form.get('titulo')
+        texto = request.form.get('texto')
+        categoria_id = request.form.get('categoria_id')
+        image_file = request.files.get('imagen')
+
+        if not titulo or not texto or not categoria_id:
+            return jsonify({"error": "Faltan campos obligatorios."}), 400
+        if not image_file or not image_file.filename.strip():
+            return jsonify({"error": "La imagen es obligatoria."}), 400
+
         cursor = mysql.connection.cursor()
+        # Primero insertamos la publicación
+        cursor.execute(
+            "INSERT INTO publicaciones (titulo, texto, categoria_id, autor_id) VALUES (%s, %s, %s, %s)",
+            (titulo, texto, categoria_id, current_user_id)
+        )
+        publicacion_id = cursor.lastrowid
 
-        # Validar autor
-        cursor.execute("SELECT autor_id FROM publicaciones WHERE id = %s", (publicacion_id,))
-        resultado = cursor.fetchone()
-        if not resultado:
-            return jsonify({"error": "Publicación no encontrada."}), 404
-        if resultado[0] != current_user_id:
-            return jsonify({"error": "No autorizado."}), 403
+        # Ahora subimos la imagen en carpeta única
+        upload_result = upload_image_to_cloudinary(
+            image_file,
+            folder=f"publicaciones/{current_user_id}/{publicacion_id}"
+        )
+        nueva_imagen_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
 
-        # Armar UPDATE dinámico
-        campos = ["titulo = %s", "texto = %s"]
-        valores = [nuevo_titulo, nuevo_texto]
+        if not nueva_imagen_url:
+            mysql.connection.rollback()
+            return jsonify({"error": "Error al subir la imagen."}), 500
 
-        if nueva_categoria:
-            campos.append("categoria_id = %s")
-            valores.append(nueva_categoria)
-
-        valores.append(publicacion_id)
-        query = f"UPDATE publicaciones SET {', '.join(campos)} WHERE id = %s"
-        cursor.execute(query, tuple(valores))
+        # Guardamos en DB
+        cursor.execute(
+            "INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)",
+            (publicacion_id, nueva_imagen_url)
+        )
         mysql.connection.commit()
 
-        # 🔥 Manejar nueva imagen
-        image_file = request.files.get("imagen") or request.files.get("imageFile")
-        if image_file and image_file.filename.strip():
-            allowed_extensions = current_app.config.get("ALLOWED_EXTENSIONS", {"png", "jpg", "jpeg", "gif"})
-            if '.' in image_file.filename and image_file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
-                filename = secure_filename(image_file.filename)
-
-                # Guardar en carpeta por publicación
-                pub_folder = os.path.join(current_app.config["UPLOAD_FOLDER"], "publicaciones", str(publicacion_id))
-                os.makedirs(pub_folder, exist_ok=True)
-                upload_path = os.path.join(pub_folder, filename)
-                image_file.save(upload_path)
-
-                # URL accesible
-                base_url = current_app.config.get("API_BASE_URL", request.url_root.rstrip('/'))
-                nueva_imagen_url = f"{base_url}/uploads/publicaciones/{publicacion_id}/{filename}"
-
-                # Reemplazar imagen vieja en DB
-                cursor.execute("DELETE FROM imagenes_publicacion WHERE publicacion_id = %s", (publicacion_id,))
-                cursor.execute(
-                    "INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)",
-                    (publicacion_id, nueva_imagen_url)
-                )
-                cursor.execute(
-                    "UPDATE publicaciones SET imageUrl = %s WHERE id = %s",
-                    (nueva_imagen_url, publicacion_id)
-                )
-                mysql.connection.commit()
-
-        # Obtener publicación actualizada
-        updated_publicacion_con_detalles = get_publicacion_con_imagenes_y_comentarios(publicacion_id)
-
-        if updated_publicacion_con_detalles:
-            socketio.emit(
-                'publication_updated_instant',
-                updated_publicacion_con_detalles,
-                namespace='/'
-            )
-
-        return jsonify({"message": "Publicación editada correctamente."}), 200
+        return jsonify({
+            "message": "Publicación creada exitosamente.",
+            "id": publicacion_id,
+            "imageUrl": nueva_imagen_url
+        }), 201
 
     except Exception as e:
+        traceback.print_exc(file=sys.stderr)
         if mysql.connection.open:
             mysql.connection.rollback()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Error interno."}), 500
     finally:
         if cursor:
             cursor.close()
@@ -370,20 +191,17 @@ def editar_publicacion(publicacion_id):
 @blog_bp.route('/eliminar-publicacion/<int:publicacion_id>', methods=['DELETE', 'OPTIONS'])
 @jwt_required()
 def eliminar_publicacion(publicacion_id):
-    # Código para eliminar publicación
     if request.method == 'OPTIONS':
         return jsonify({'message': 'Preflight success'}), 200
     
     current_user_id = int(get_jwt_identity())
-    publicacion_id = int(publicacion_id)
     claims = get_jwt()
-    
+
     print(f"DEBUG ELIMINAR: current_user_id del JWT: {current_user_id}", file=sys.stderr)
     print(f"DEBUG ELIMINAR: claims del JWT: {claims}", file=sys.stderr)
 
     if not claims.get('verificado'):
-        print(f"DEBUG ELIMINAR: Usuario {current_user_id} no verificado, acceso denegado.", file=sys.stderr)
-        return jsonify({"error": "Usuario no verificado. Por favor, verifica tu correo electrónico."}), 403
+        return jsonify({"error": "Usuario no verificado."}), 403
 
     cursor = None
     try:
@@ -392,43 +210,48 @@ def eliminar_publicacion(publicacion_id):
         resultado = cursor.fetchone()
         
         if not resultado:
-            print(f"ERROR ELIMINAR: Publicación {publicacion_id} no encontrada.", file=sys.stderr)
             return jsonify({"error": "Publicación no encontrada."}), 404
         
         autor_publicacion_id = resultado['autor_id']
-        print(f"DEBUG ELIMINAR: Autor de la publicación {publicacion_id} es {autor_publicacion_id}, usuario actual es {current_user_id}.", file=sys.stderr)
-
         if autor_publicacion_id != current_user_id:
-            print(f"ERROR ELIMINAR: Usuario {current_user_id} no autorizado para eliminar publicación {publicacion_id}.", file=sys.stderr)
             return jsonify({"error": "No autorizado para eliminar esta publicación."}), 403
 
+        # 🔥 Obtener imágenes asociadas
         cursor.execute("SELECT url FROM imagenes_publicacion WHERE publicacion_id = %s", (publicacion_id,))
         image_urls_to_delete = cursor.fetchall()
 
-        for img_url_dict in image_urls_to_delete:
-            img_url = img_url_dict['url']
-            if current_app.config.get('API_BASE_URL') and img_url.startswith(current_app.config.get('API_BASE_URL')):
-                relative_path = img_url.replace(current_app.config.get('API_BASE_URL'), '').lstrip('/')
-                filepath_to_delete = os.path.join(current_app.root_path, relative_path)
-                if os.path.exists(filepath_to_delete) and os.path.isfile(filepath_to_delete):
-                    os.remove(filepath_to_delete)
-                    print(f"DEBUG ELIMINAR: Imagen de publicación eliminada del disco: {filepath_to_delete}", file=sys.stderr)
-                else:
-                    print(f"ADVERTENCIA ELIMINAR: No se encontró o no es un archivo la imagen para eliminar: {filepath_to_delete}", file=sys.stderr)
+        for row in image_urls_to_delete:
+            img_url = row['url']
+            public_id = extract_public_id_from_url(img_url)
+            if public_id:
+                try:
+                    cloudinary.uploader.destroy(public_id)
+                    print(f"DEBUG ELIMINAR: Imagen eliminada de Cloudinary: {public_id}", file=sys.stderr)
+                except Exception as e:
+                    print(f"ERROR ELIMINAR: Fallo eliminando {public_id} de Cloudinary: {e}", file=sys.stderr)
 
-        publicacion_folder_path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'publicaciones', str(publicacion_id))
-        if os.path.exists(publicacion_folder_path):
-            shutil.rmtree(publicacion_folder_path)
-            print(f"DEBUG ELIMINAR: Carpeta de publicación eliminada del disco: {publicacion_folder_path}", file=sys.stderr)
+        # 🔥 Eliminar toda la carpeta en Cloudinary (publicaciones/<user_id>/<publicacion_id>)
+        try:
+            folder_prefix = f"publicaciones/{autor_publicacion_id}/{publicacion_id}"
+            cloudinary.api.delete_resources_by_prefix(folder_prefix)
+            cloudinary.api.delete_folder(folder_prefix)
+            print(f"DEBUG ELIMINAR: Carpeta eliminada en Cloudinary: {folder_prefix}", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR ELIMINAR: No se pudo eliminar la carpeta de Cloudinary: {e}", file=sys.stderr)
 
+        # 🔥 Borrar datos relacionados en la DB
         cursor.execute("DELETE FROM comentarios WHERE publicacion_id = %s", (publicacion_id,))
         cursor.execute("DELETE FROM imagenes_publicacion WHERE publicacion_id = %s", (publicacion_id,))
         cursor.execute("DELETE FROM likes WHERE publicacion_id = %s", (publicacion_id,))
         cursor.execute("DELETE FROM publicaciones WHERE id = %s", (publicacion_id,))
         mysql.connection.commit()
-        print(f"DEBUG ELIMINAR: Publicación {publicacion_id} y sus datos asociados eliminados correctamente por usuario {current_user_id}.", file=sys.stderr)
 
-        socketio.emit('publication_deleted', {'id': publicacion_id, 'message': 'Publicación eliminada.'}, namespace='/', to=None)
+        # 🔥 Emitir evento a todos los clientes
+        socketio.emit('publication_deleted', {
+            'id': publicacion_id,
+            'message': 'Publicación eliminada.'
+        }, namespace='/')
+
         print(f"DEBUG ELIMINAR: Evento 'publication_deleted' emitido para pub {publicacion_id}.", file=sys.stderr)
 
         return jsonify({"message": "Publicación eliminada correctamente."}), 200
@@ -442,10 +265,156 @@ def eliminar_publicacion(publicacion_id):
         if cursor:
             cursor.close()
 
+@blog_bp.route('/publicaciones', methods=['GET', 'OPTIONS'])
+def get_publicaciones():
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'Preflight success'}), 200
+
+    categoria_id = request.args.get('categoria_id', type=int)
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor(DictCursor)
+
+        sql = """
+            SELECT
+                p.id, p.autor_id, p.titulo, p.texto AS content, p.created_at, p.likes_count,
+                p.categoria_id, c.nombre AS categoria_nombre,
+                u.username AS autor_username, u.foto_perfil AS autor_foto_perfil_url, u.verificado AS autor_verificado
+            FROM publicaciones p
+            JOIN users u ON p.autor_id = u.id
+            LEFT JOIN categorias c ON p.categoria_id = c.id
+        """
+        values = []
+
+        if categoria_id:
+            sql += " WHERE p.categoria_id = %s"
+            values.append(categoria_id)
+
+        sql += " ORDER BY p.created_at DESC"
+
+        cursor.execute(sql, tuple(values))
+        publicaciones = cursor.fetchall()
+
+        for pub in publicaciones:
+            # Normalizar fechas
+            if isinstance(pub['created_at'], datetime):
+                pub['created_at'] = pub['created_at'].isoformat()
+            pub['autor_verificado'] = bool(pub['autor_verificado'])
+            pub['autor_foto_perfil_url'] = pub['autor_foto_perfil_url'] if pub['autor_foto_perfil_url'] else None
+
+            # Obtener imágenes principales
+            cursor_img = mysql.connection.cursor(DictCursor)
+            cursor_img.execute("SELECT id, url FROM imagenes_publicacion WHERE publicacion_id = %s ORDER BY id", (pub['id'],))
+            imagenes = cursor_img.fetchall()
+            cursor_img.close()
+
+            pub['imagenes'] = imagenes
+            pub['imageUrl'] = imagenes[0]['url'] if imagenes else None
+            pub['imagenes_adicionales_urls'] = [img['url'] for img in imagenes[1:]] if len(imagenes) > 1 else []
+
+            # Renombrar campo likes_count → likes
+            pub['likes'] = pub.pop('likes_count')
+
+        return jsonify(publicaciones), 200
+
+    except Exception as e:
+        print(f"ERROR al obtener publicaciones: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({"error": "Error interno del servidor al obtener publicaciones."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+
+
+
+@blog_bp.route('/editar-publicacion/<int:publicacion_id>', methods=['PUT', 'OPTIONS'])
+@jwt_required()
+def editar_publicacion(publicacion_id):
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'Preflight success'}), 200
+
+    current_user_id = int(get_jwt_identity())
+    claims = get_jwt()
+    if not claims.get('verificado'):
+        return jsonify({"error": "Usuario no verificado."}), 403
+
+    titulo = request.form.get('titulo')
+    texto = request.form.get('texto')
+    categoria_id = request.form.get('categoria_id')
+    image_file = request.files.get('imagen')
+
+    cursor = None
+    try:
+        cursor = mysql.connection.cursor(DictCursor)
+
+        cursor.execute("SELECT autor_id FROM publicaciones WHERE id = %s", (publicacion_id,))
+        result = cursor.fetchone()
+        if not result:
+            return jsonify({"error": "Publicación no encontrada"}), 404
+        if result['autor_id'] != current_user_id:
+            return jsonify({"error": "No autorizado"}), 403
+
+        update_fields, update_values = [], []
+        if titulo:
+            update_fields.append("titulo = %s")
+            update_values.append(titulo)
+        if texto:
+            update_fields.append("texto = %s")
+            update_values.append(texto)
+        if categoria_id:
+            try:
+                categoria_id = int(categoria_id)
+                update_fields.append("categoria_id = %s")
+                update_values.append(categoria_id)
+            except ValueError:
+                return jsonify({"error": "El ID de categoría no es válido."}), 400
+
+        # Si viene nueva imagen, reemplazamos
+        if image_file and image_file.filename.strip():
+            # Buscar la imagen actual
+            cursor.execute("SELECT url FROM imagenes_publicacion WHERE publicacion_id = %s AND orden = 1", (publicacion_id,))
+            old = cursor.fetchone()
+            if old:
+                old_public_id = extract_public_id_from_url(old['url'])
+                if old_public_id:
+                    try:
+                        cloudinary.uploader.destroy(old_public_id)
+                    except Exception as e:
+                        print(f"Error eliminando {old_public_id} de Cloudinary: {e}", file=sys.stderr)
+
+            # Subir nueva
+            upload_result = upload_image_to_cloudinary(
+                image_file,
+                folder=f"publicaciones/{current_user_id}/{publicacion_id}"
+            )
+            nueva_imagen_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
+
+            if nueva_imagen_url:
+                cursor.execute(
+                    "UPDATE imagenes_publicacion SET url = %s WHERE publicacion_id = %s AND orden = 1",
+                    (nueva_imagen_url, publicacion_id)
+                )
+
+        if update_fields:
+            update_values.append(publicacion_id)
+            sql = f"UPDATE publicaciones SET {', '.join(update_fields)} WHERE id = %s"
+            cursor.execute(sql, tuple(update_values))
+
+        mysql.connection.commit()
+        return jsonify({"message": "Publicación actualizada exitosamente."}), 200
+
+    except Exception as e:
+        traceback.print_exc(file=sys.stderr)
+        if mysql.connection.open:
+            mysql.connection.rollback()
+        return jsonify({"error": "Error interno al editar la publicación."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+
 @blog_bp.route('/comentar-publicacion', methods=['POST', 'OPTIONS'])
 @jwt_required()
 def comentar_publicacion():
-    # Código para comentar publicación
     if request.method == 'OPTIONS':
         return jsonify({'message': 'Preflight success'}), 200
 
@@ -463,11 +432,10 @@ def comentar_publicacion():
     publicacion_id = data.get('publicacion_id')
     comentario_texto = data.get('comentario')
 
-    print(f"DEBUG COMENTAR: Solicitud para comentar publicacion_id: {publicacion_id}, texto: '{str(comentario_texto)[:50] if comentario_texto is not None else 'None'}...'", file=sys.stderr)
-
+    print(f"DEBUG COMENTAR: Solicitud para comentar publicacion_id: {publicacion_id}, texto: '{str(comentario_texto)[:50] if comentario_texto else 'None'}...'", file=sys.stderr)
 
     if publicacion_id is None or not comentario_texto:
-        print(f"ERROR COMENTAR: Datos incompletos - publicacion_id o comentario faltante.", file=sys.stderr)
+        print("ERROR COMENTAR: Datos incompletos - publicacion_id o comentario faltante.", file=sys.stderr)
         return jsonify({"error": "ID de publicación y comentario son requeridos."}), 400
 
     cursor = None
@@ -477,7 +445,7 @@ def comentar_publicacion():
 
         cursor.execute("SELECT id FROM publicaciones WHERE id = %s", (publicacion_id,))
         if not cursor.fetchone():
-            print(f"ERROR COMENTAR: Publicación {publicacion_id} no encontrada para comentar.", file=sys.stderr)
+            print(f"ERROR COMENTAR: Publicación {publicacion_id} no encontrada.", file=sys.stderr)
             return jsonify({"error": "La publicación no existe."}), 404
 
         cursor.execute(
@@ -487,7 +455,6 @@ def comentar_publicacion():
         mysql.connection.commit()
         new_comment_id = cursor.lastrowid
         print(f"DEBUG COMENTAR: Comentario {new_comment_id} creado en publicación {publicacion_id} por user {current_user_id}.", file=sys.stderr)
-
 
         comments_cursor = mysql.connection.cursor(DictCursor)
         comments_cursor.execute("""
@@ -508,14 +475,25 @@ def comentar_publicacion():
                 new_comment_data['edited_at'] = new_comment_data['edited_at'].isoformat()
             else:
                 new_comment_data['edited_at'] = new_comment_data['created_at']
+
             new_comment_data['autor_foto_perfil_url'] = new_comment_data['autor_foto_perfil_url'] if new_comment_data['autor_foto_perfil_url'] else None
             new_comment_data['autor_verificado'] = bool(new_comment_data['autor_verificado'])
 
-
-        socketio.emit('comment_added', {'publicacion_id': publicacion_id, 'comment': new_comment_data}, room=f'publicacion_{publicacion_id}', namespace='/')
+        # ✅ Emitir evento al "room" de la publicación
+        socketio.emit(
+            'comment_added',
+            {'publicacion_id': publicacion_id, 'comment': new_comment_data},
+            namespace='/',
+            room=f'publicacion_{publicacion_id}'
+        )
         print(f"DEBUG COMENTAR: Evento 'comment_added' emitido para publicacion_{publicacion_id}.", file=sys.stderr)
 
-        return jsonify({"message": "Comentario publicado exitosamente.", "comment_id": new_comment_id, "comment": new_comment_data}), 201
+        return jsonify({
+            "message": "Comentario publicado exitosamente.",
+            "comment_id": new_comment_id,
+            "comment": new_comment_data
+        }), 201
+
     except Exception as e:
         print(f"Error al comentar publicación {publicacion_id} para user {current_user_id}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -732,111 +710,41 @@ def eliminar_comentario(comentario_id):
         if cursor:
             cursor.close()
 
-@blog_bp.route('/publicaciones/<int:publicacion_id>/upload_imagen', methods=['POST', 'OPTIONS'])
+@blog_bp.route('/publicaciones/<int:publicacion_id>/upload_imagen', methods=['POST'])
 @jwt_required()
 def upload_publicacion_image(publicacion_id):
-    # Código para subir imagen a publicación
-    if request.method == 'OPTIONS':
-        return jsonify({'message': 'Preflight success'}), 200
-
     current_user_id = int(get_jwt_identity())
-    publicacion_id = int(publicacion_id)
     claims = get_jwt()
-    
-    print(f"DEBUG UPLOAD_PUB_IMAGE: current_user_id del JWT: {current_user_id}", file=sys.stderr)
-    print(f"DEBUG UPLOAD_PUB_IMAGE: claims del JWT: {claims}", file=sys.stderr)
 
     if not claims.get('verificado'):
-        print(f"DEBUG UPLOAD_PUB_IMAGE: Usuario {current_user_id} no verificado, acceso denegado.", file=sys.stderr)
-        return jsonify({"error": "Usuario no verificado. Por favor, verifica tu correo electrónico."}), 403
+        return jsonify({"error": "Usuario no verificado"}), 403
 
-    cursor = None
-    try:
-        cursor = mysql.connection.cursor()
-        cursor.execute("SELECT autor_id FROM publicaciones WHERE id = %s", (publicacion_id,))
-        publicacion = cursor.fetchone()
-        
-        if not publicacion:
-            print(f"ERROR UPLOAD_PUB_IMAGE: Publicación {publicacion_id} no encontrada.", file=sys.stderr)
-            return jsonify({"error": "Publicación no encontrada."}), 404
-        
-        autor_publicacion_id = publicacion[0]
-        print(f"DEBUG UPLOAD_PUB_IMAGE: Autor de la publicación {publicacion_id} es {autor_publicacion_id}, usuario actual es {current_user_id}.", file=sys.stderr)
+    if 'file' not in request.files:
+        return jsonify({"error": "No se envió archivo"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Archivo vacío"}), 400
 
-        if autor_publicacion_id != current_user_id:
-            print(f"ERROR UPLOAD_PUB_IMAGE: Usuario {current_user_id} no tiene permiso para subir imágenes a la publicación {publicacion_id}.", file=sys.stderr)
-            return jsonify({"error": "No tienes permiso para subir imágenes a esta publicación."}), 403
+    allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
+    if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+        try:
+            upload_result = upload_image_to_cloudinary(file, folder=f"publicaciones/{publicacion_id}")
+            image_url = upload_result.get("secure_url") if isinstance(upload_result, dict) else upload_result
 
-        if 'imagen_publicacion' not in request.files:
-            print(f"ERROR UPLOAD_PUB_IMAGE: No se encontró 'imagen_publicacion' en request.files para pub {publicacion_id}.", file=sys.stderr)
-            return jsonify({'error': 'No se encontró el archivo de imagen en la solicitud. El campo esperado es "imagen_publicacion".'}), 400
-
-        file = request.files['imagen_publicacion']
-
-        if file.filename == '':
-            print(f"ERROR UPLOAD_PUB_IMAGE: Nombre de archivo vacío para pub {publicacion_id}.", file=sys.stderr)
-            return jsonify({'error': 'No se seleccionó ningún archivo.'}), 400
-
-        allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
-
-        if file and '.' in file.filename and \
-           file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
-
-            file_extension = file.filename.rsplit('.', 1)[1].lower()
-
-            upload_folder = current_app.config.get('UPLOAD_FOLDER')
-            if not upload_folder:
-                print("ERROR: UPLOAD_FOLDER no está configurado en app.config.", file=sys.stderr)
-                return jsonify({"error": "Error de configuración del servidor (UPLOAD_FOLDER no definido)."}, 500)
-
-            base_publicaciones_path = os.path.join(upload_folder, 'publicaciones')
-            publicacion_folder_path = os.path.join(base_publicaciones_path, str(publicacion_id))
-
-            if not os.path.exists(publicacion_folder_path):
-                os.makedirs(publicacion_folder_path)
-                print(f"DEBUG UPLOAD_PUB_IMAGE: Carpeta de publicación creada: {publicacion_folder_path}", file=sys.stderr)
-
-            new_filename = secure_filename(file.filename)
-            filepath = os.path.join(publicacion_folder_path, new_filename)
-
-            try:
-                file.save(filepath)
-                print(f"DEBUG UPLOAD_PUB_IMAGE: Imagen de publicación guardada en: {filepath}", file=sys.stderr)
-
-                base_url = current_app.config.get('API_BASE_URL', request.url_root.rstrip('/'))
-                image_url = f"{base_url}/uploads/publicaciones/{publicacion_id}/{new_filename}"
-
-                cursor.execute("INSERT INTO imagenes_publicacion (publicacion_id, url) VALUES (%s, %s)", (publicacion_id, image_url))
+            if image_url:
+                cursor = mysql.connection.cursor()
+                cursor.execute(
+                    "INSERT INTO imagenes_publicacion (publicacion_id, url, orden) VALUES (%s, %s, 1)",
+                    (publicacion_id, image_url)
+                )
                 mysql.connection.commit()
-                print(f"DEBUG UPLOAD_PUB_IMAGE: URL de imagen de publicación guardada en DB: {image_url}", file=sys.stderr)
+                cursor.close()
+                return jsonify({"message": "Imagen subida", "url": image_url}), 200
+        except Exception as e:
+            traceback.print_exc(file=sys.stderr)
+            return jsonify({"error": "Error al subir imagen"}), 500
+    return jsonify({"error": "Formato de archivo no permitido"}), 400
 
-                updated_publicacion_con_detalles = get_publicacion_con_imagenes_y_comentarios(publicacion_id)
-
-                if updated_publicacion_con_detalles:
-                    if hasattr(current_app, 'add_to_publication_batch'):
-                        current_app.add_to_publication_batch(updated_publicacion_con_detalles)
-                    else:
-                        socketio.emit('publication_updated_instant', updated_publicacion_con_detalles, broadcast=True, namespace='/')
-                    print(f"DEBUG UPLOAD_PUB_IMAGE: Evento 'publication_updated' emitido para pub {publicacion_id}.", file=sys.stderr)
-
-                return jsonify({
-                    'message': 'Imagen de publicación subida exitosamente.',
-                    'imagen_url': image_url
-                }), 201
-            except Exception as save_e:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                print(f"Error al guardar el archivo o DB para publicación {publicacion_id}: {save_e}", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
-                if mysql.connection.open:
-                    mysql.connection.rollback()
-                return jsonify({"error": "Error interno del servidor al guardar la imagen de la publicación."}), 500
-        else:
-            print(f"DEBUG BACKEND: /publicaciones/{publicacion_id}/upload_imagen -> Tipo de archivo no permitido: {file.filename}", file=sys.stderr)
-            return jsonify({'error': f"Tipo de archivo no permitido o nombre de archivo inválido. Solo se permiten {', '.join(allowed_extensions)}."}), 400
-    finally:
-        if cursor:
-            cursor.close()
 
 from flask import Response
 import json

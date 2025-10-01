@@ -8,6 +8,10 @@ import traceback
 import jwt
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
+# ✅ Import directo desde la raíz
+from utils import upload_image_to_cloudinary
+
+
 user_bp = Blueprint('user', __name__)
 
 def get_user_from_jwt(auth_header):
@@ -134,61 +138,57 @@ def perfil():
         if cursor:
             cursor.close()
 
-@user_bp.route('/perfil/foto', methods=['PUT'])
+@user_bp.route("/perfil/foto", methods=["PUT"])
 @jwt_required()
-def upload_profile_picture():
-    current_user_id = int(get_jwt_identity())
-    claims = get_jwt()
+def actualizar_foto_perfil():
+    user_id = get_jwt_identity()
+    print("📌 [DEBUG] Usuario autenticado:", user_id)
 
-    if not claims.get('verificado'):
-        return jsonify({"error": "Usuario no verificado"}), 403
+    if "profile_picture" not in request.files:
+        print("❌ [DEBUG] No se recibió el archivo 'profile_picture'")
+        return jsonify({"error": "No se envió ninguna imagen"}), 400
 
-    cursor = None
+    file = request.files["profile_picture"]
+    print("📌 [DEBUG] Archivo recibido:", file.filename, "Content-Type:", file.content_type)
+
     try:
+        public_id = f"fotos_perfil/{user_id}/profile_picture"
+        print("📌 [DEBUG] Subiendo a Cloudinary con public_id:", public_id)
+
+        upload_result = upload_image_to_cloudinary(
+            file=file,
+            folder=f"fotos_perfil/{user_id}",
+            public_id="profile_picture"
+        )
+
+        print("✅ [DEBUG] Respuesta Cloudinary:", upload_result)
+
+        foto_url = upload_result.get("secure_url")
+        version = upload_result.get("version")
+        print("📌 [DEBUG] URL final:", foto_url, "Versión:", version)
+
+        if not foto_url:
+            print("❌ [DEBUG] Cloudinary no devolvió secure_url")
+            return jsonify({"error": "Error al obtener URL de Cloudinary"}), 500
+
+        # Guardar en DB (tabla users ✅)
         cursor = mysql.connection.cursor()
-        cursor.execute("SELECT foto_perfil FROM users WHERE id = %s", (current_user_id,))
-        result = cursor.fetchone()
-        old_profile_picture_url = result[0] if result else None
+        cursor.execute(
+            "UPDATE users SET foto_perfil = %s WHERE id = %s",
+            (foto_url, user_id)
+        )
+        mysql.connection.commit()
+        cursor.close()
 
-        if 'profile_picture' not in request.files:
-            return jsonify({'error': 'Falta el archivo "profile_picture".'}), 400
+        print("✅ [DEBUG] Foto actualizada en la DB")
 
-        file = request.files['profile_picture']
-        if file.filename == '':
-            return jsonify({'error': 'Archivo vacío'}), 400
+        return jsonify({
+            "message": "Foto de perfil actualizada correctamente",
+            "foto_perfil_url": foto_url,
+            "version": version
+        }), 200
 
-        allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
-        if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
-            file_extension = file.filename.rsplit('.', 1)[1].lower()
-            upload_folder = current_app.config.get('UPLOAD_FOLDER')
-
-            base_profile_pictures_path = os.path.join(upload_folder, 'fotos_perfil')
-            user_folder = os.path.join(base_profile_pictures_path, str(current_user_id))
-            os.makedirs(user_folder, exist_ok=True)
-
-            new_filename = secure_filename(f"profile_picture.{file_extension}")
-            filepath = os.path.join(user_folder, new_filename)
-
-            if old_profile_picture_url:
-                old_filename_from_url = os.path.basename(old_profile_picture_url)
-                old_filepath = os.path.join(user_folder, old_filename_from_url)
-                if os.path.exists(old_filepath) and old_filepath != filepath and os.path.isfile(old_filepath):
-                    os.remove(old_filepath)
-
-            file.save(filepath)
-
-            base_url = current_app.config.get('API_BASE_URL', request.url_root.rstrip('/'))
-            image_url = f"{base_url}/uploads/fotos_perfil/{current_user_id}/{new_filename}"
-
-            cursor.execute("UPDATE users SET foto_perfil = %s WHERE id = %s", (image_url, current_user_id))
-            mysql.connection.commit()
-            return jsonify({'message': 'Foto actualizada', 'foto_perfil_url': image_url}), 200
-        else:
-            return jsonify({'error': 'Formato de archivo no permitido'}), 400
-    except Exception:
-        if mysql.connection.open:
-            mysql.connection.rollback()
-        return jsonify({"error": "Error al actualizar foto de perfil"}), 500
-    finally:
-        if cursor:
-            cursor.close()
+    except Exception as e:
+        print("❌ [DEBUG] Excepción en actualizar_foto_perfil:", str(e))
+        traceback.print_exc()
+        return jsonify({"error": "Error interno del servidor", "detalle": str(e)}), 500
