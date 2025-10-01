@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
-from extensions import mysql, redis_client # Importar redis_client
+# ⚠️ CORRECCIÓN: Eliminar la importación de 'mysql' para resolver el ImportError.
+from extensions import redis_client
 import sys
 import traceback
 import smtplib
