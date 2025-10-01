@@ -15,9 +15,7 @@ from dotenv import load_dotenv
 from threading import Timer, Lock
 from flask_socketio import join_room, leave_room, emit
 
-# 🔑 NUEVO: import necesario para flags de SSL
-import MySQLdb  
-
+# 🔑 ya no usamos MySQLdb.constants, solo el flag numérico
 load_dotenv()
 
 app = Flask(__name__)
@@ -25,7 +23,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # =====================================================================
-# 🔑 Configuración MySQL con soporte para TiDB Cloud (SSL requerido)
+# Configuración MySQL con soporte para TiDB Cloud (SSL requerido)
 # =====================================================================
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -35,9 +33,9 @@ app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', '')
 app.config['MYSQL_DB'] = os.getenv('MYSQL_DB', 'flask_api')
 app.config['MYSQL_CHARSET'] = 'utf8mb4'
 
-# 🔑 NUEVO: Forzar SSL si se conecta a TiDB Cloud
+# 🔑 Forzar SSL si se conecta a TiDB Cloud
 if "tidbcloud.com" in app.config['MYSQL_HOST']:
-    app.config['MYSQL_CLIENT_FLAGS'] = [MySQLdb.constants.CLIENT.SSL]
+    app.config['MYSQL_CLIENT_FLAGS'] = [2048]  # 2048 = CLIENT_SSL
     app.config['MYSQL_SSL_CA'] = os.path.join(basedir, "certs", "isrgrootx1.pem")
 # =====================================================================
 
